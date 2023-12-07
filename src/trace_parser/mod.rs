@@ -1,8 +1,10 @@
-use std::{fs::File, io::BufRead, str::FromStr};
+use std::str::FromStr;
 
-use crate::{SUError, SUResult};
+use crate::SUError;
 
 mod ali_trace;
+
+pub use ali_trace::AliTraceParser;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Operation {

@@ -11,43 +11,37 @@ pub enum SUError {
     InvalidArg(String),
     #[error("[kind: out of range, info:{0}]")]
     Range(String),
-    #[error("[kind: uncategorized, info: {0}")]
-    Uncategorized(Box<dyn std::error::Error>),
     #[error("[kind: other, info: {0}]")]
     Other(String),
 }
 
 impl SUError {
-    pub fn invalid_arg(e: impl ToString) -> Self {
+    pub(crate) fn invalid_arg(e: impl ToString) -> Self {
         Self::InvalidArg(e.to_string())
     }
 
-    pub fn uncategorized(e: Box<dyn std::error::Error>) -> Self {
-        Self::Uncategorized(e)
-    }
-
-    pub fn other(e: impl ToString) -> Self {
+    pub(crate) fn other(e: impl ToString) -> Self {
         Self::Other(e.to_string())
     }
 
-    pub fn out_of_range(
-        obj_name: &str,
+    pub(crate) fn out_of_range(
+        source_location: &str,
         valid_range: std::ops::Range<usize>,
         illegal_range: std::ops::Range<usize>,
     ) -> Self {
         Self::Range(format!(
-            "{obj_name}[{}..{}) is out of range [{}..{})",
+            "[{}..{}) is out of range [{}..{}) [{source_location}]",
             illegal_range.start, illegal_range.end, valid_range.start, valid_range.end
         ))
     }
 
-    pub fn range_not_match(
-        obj_name: &str,
+    pub(crate) fn range_not_match(
+        source_location: &str,
         valid_range: std::ops::Range<usize>,
         illegal_range: std::ops::Range<usize>,
     ) -> Self {
         Self::Range(format!(
-            "{obj_name}[{}..{}) does not match range [{}..{})",
+            "[{}..{}) does not match range [{}..{}) [{source_location}]",
             illegal_range.start, illegal_range.end, valid_range.start, valid_range.end
         ))
     }

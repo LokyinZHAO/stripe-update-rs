@@ -3,10 +3,16 @@ use crate::SUError;
 use crate::SUResult;
 
 mod hdd_storage;
+mod lru_evict;
+mod ssd_storage;
+mod utility;
 
 pub use hdd_storage::HDDStorage;
+pub use ssd_storage::SSDStorage;
 
 pub type BlockId = usize;
+
+use utility::*;
 
 pub trait BlockStorage {
     /// Storing data to a block.
@@ -19,7 +25,7 @@ pub trait BlockStorage {
     /// # Return
     /// - [`Ok`]: on success
     /// - [`Err`]: on any error occurring
-    fn put_block(&self, block_id: BlockId, block_data: impl AsRef<[u8]>) -> SUResult<()>;
+    fn put_block(&self, block_id: BlockId, block_data: &[u8]) -> SUResult<()>;
     /// Retrieving data from a full block.
     ///
     /// # Parameter
@@ -33,7 +39,7 @@ pub trait BlockStorage {
     ///
     /// # Error
     /// - [`SUError::Range`] if `block_data.len()` does not match the block length
-    fn get_block(&self, block_id: BlockId, block_data: impl AsMut<[u8]>) -> SUResult<Option<()>>;
+    fn get_block(&self, block_id: BlockId, block_data: &mut [u8]) -> SUResult<Option<()>>;
     /// Retrieving data from a full block.
     ///
     /// # Parameter
@@ -43,7 +49,13 @@ pub trait BlockStorage {
     /// - [`Ok(Some)`] on success with the corresponding block data returned
     /// - [`Ok(None)`] on block not existing
     /// - [`Err`] on any error occurring
-    fn get_block_owned(&self, block_id: BlockId) -> SUResult<Option<Vec<u8>>>;
+    fn get_block_owned(&self, block_id: BlockId) -> SUResult<Option<Vec<u8>>> {
+        let mut data = vec![0_u8; self.block_size()];
+        self.get_block(block_id, &mut data)
+            .map(|opt| opt.map(|_| data))
+    }
+    /// Get size of a block
+    fn block_size(&self) -> usize;
 }
 
 pub trait SliceStorage: BlockStorage {
@@ -66,7 +78,7 @@ pub trait SliceStorage: BlockStorage {
         &self,
         block_id: BlockId,
         inner_block_offset: usize,
-        slice_data: impl AsRef<[u8]>,
+        slice_data: &[u8],
     ) -> SUResult<Option<()>>;
     /// Retrieving slice data from a specific area of a block to a slice buffer.
     /// The block area to retrieve is defined as `Block[inner_block_offset, inner_block_offset + slice_data.len()`).
@@ -82,7 +94,7 @@ pub trait SliceStorage: BlockStorage {
         &self,
         block_id: BlockId,
         inner_block_offset: usize,
-        slice_data: impl AsMut<[u8]>,
+        slice_data: &mut [u8],
     ) -> SUResult<Option<()>>;
     /// Retrieving slice data from a specific area of a block.
     /// The block area to retrieve is defined as `Block[range.start..range.end)`
@@ -98,5 +110,18 @@ pub trait SliceStorage: BlockStorage {
         &self,
         block_id: BlockId,
         range: std::ops::Range<usize>,
-    ) -> SUResult<Option<Vec<u8>>>;
+    ) -> SUResult<Option<Vec<u8>>> {
+        let mut data: Vec<u8> = vec![0_u8; range.len()];
+        self.get_slice(block_id, range.start, data.as_mut_slice())
+            .map(|opt| opt.map(|_| data))
+    }
+}
+
+trait EvictStrategy {
+    type Item;
+    /// Return `true` if the evict contains an element equal to `item`, otherwise false
+    fn contains(&self, item: &Self::Item) -> bool;
+    /// Push an item into the container.
+    /// If the container is full, it returns the evicted item, other wise `None`
+    fn push(&self, item: Self::Item) -> Option<Self::Item>;
 }

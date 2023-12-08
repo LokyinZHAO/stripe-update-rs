@@ -25,24 +25,32 @@ impl SUError {
     }
 
     pub(crate) fn out_of_range(
-        source_location: &str,
+        source_location: impl ToString,
         valid_range: std::ops::Range<usize>,
         illegal_range: std::ops::Range<usize>,
     ) -> Self {
         Self::Range(format!(
-            "[{}..{}) is out of range [{}..{}) [{source_location}]",
-            illegal_range.start, illegal_range.end, valid_range.start, valid_range.end
+            "[{}..{}) is out of range [{}..{}) [{}]",
+            illegal_range.start,
+            illegal_range.end,
+            valid_range.start,
+            valid_range.end,
+            source_location.to_string()
         ))
     }
 
     pub(crate) fn range_not_match(
-        source_location: &str,
+        source_location: impl ToString,
         valid_range: std::ops::Range<usize>,
         illegal_range: std::ops::Range<usize>,
     ) -> Self {
         Self::Range(format!(
-            "[{}..{}) does not match range [{}..{}) [{source_location}]",
-            illegal_range.start, illegal_range.end, valid_range.start, valid_range.end
+            "[{}..{}) does not match range [{}..{}) [{}]",
+            illegal_range.start,
+            illegal_range.end,
+            valid_range.start,
+            valid_range.end,
+            source_location.to_string()
         ))
     }
 

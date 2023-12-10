@@ -38,6 +38,7 @@ pub trait ErasureCode {
     fn delta_update(&self, partial_stripe: &mut PartialStripe) -> SUResult<()>;
 }
 
+/// check the k and p matches between erasure code interface and the stripe
 fn check_k_p(
     ec: &dyn ErasureCode,
     stripe: &Stripe,
@@ -125,7 +126,7 @@ mod test {
             .map(|(mut stripe, corrupt)| {
                 // corrupt blocks
                 corrupt.iter().for_each(|idx| {
-                    stripe.set_block(*idx, None);
+                    stripe.replace_block(*idx, None);
                 });
                 stripe
             })

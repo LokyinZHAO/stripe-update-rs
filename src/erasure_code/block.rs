@@ -1,13 +1,17 @@
 use bytes::BytesMut;
 
+/// A [`Block`] represents a unit in a [`Stripe`](crate::erasure_code::Stripe),
+/// which references to a continuous memory region.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Block(BytesMut);
 
 impl Block {
+    /// Make a new [`Block`] initialized with `0`
     pub fn zero(block_size: usize) -> Self {
         Self(BytesMut::zeroed(block_size))
     }
 
+    /// Make `n` new [`Block`] initialized with `0`
     pub fn zero_n(n: usize, block_size: usize) -> Vec<Self> {
         let mut buf = BytesMut::zeroed(n * block_size);
         (0..n)
@@ -23,6 +27,7 @@ impl Block {
         Self(buf.split_to(block_size))
     }
 
+    /// Get size of the block.
     pub fn block_size(&self) -> usize {
         self.0.len()
     }

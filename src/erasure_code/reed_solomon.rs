@@ -16,6 +16,7 @@ pub struct ReedSolomon {
 }
 
 impl ReedSolomon {
+    /// Make a [`ReedSolomon`]`(k+p, k)` erasure code.
     pub fn from_k_p(k: NonZeroUsize, p: NonZeroUsize) -> Self {
         let k = k.get();
         let p = p.get();
@@ -75,7 +76,7 @@ impl ErasureCode for ReedSolomon {
     /// - If the number of absent blocks are greater than the number of parity blocks.
     fn decode(&self, partial_stripe: &mut super::PartialStripe) -> crate::SUResult<()> {
         let block_size = partial_stripe.block_size();
-        let (present, absent) = partial_stripe.split_mut();
+        let (present, absent) = partial_stripe.split_mut_present_absent();
         if absent.len() > self.p {
             return Err(crate::SUError::erasure_code(
                 (file!(), line!(), column!()),

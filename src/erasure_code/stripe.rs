@@ -286,7 +286,18 @@ impl PartialStripe {
         }
     }
 
-    /// Split the partial stripe by present and absent block
+    /// Split the partial stripe to slices of source blocks and parity blocks
+    pub fn split_source_parity(&self) -> (&[Option<Block>], &[Option<Block>]) {
+        self.stripe.split_at(self.k())
+    }
+
+    /// Split the partial stripe to mutable slices of source blocks and parity blocks.
+    pub fn split_mut_source_parity(&mut self) -> (&mut [Option<Block>], &mut [Option<Block>]) {
+        let k = self.k();
+        self.stripe.split_at_mut(k)
+    }
+
+    /// Split the partial stripe to present and absent block
     ///
     /// # Returns
     /// A tuple with the present half and the absent half.
@@ -303,7 +314,7 @@ impl PartialStripe {
         (present, absent)
     }
 
-    /// Split the partial stripe by mutable present / absent block
+    /// Split the partial stripe to mutable present / absent block
     ///
     /// # Returns
     /// A tuple with the mutable present half and the mutable absent half.

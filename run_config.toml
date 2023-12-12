@@ -1,0 +1,7 @@
+EcK = 4
+EcP = 2
+BlockSize = 1048576
+BlockNum = 10240
+SsdDevPath = "./data/ssd_dev"
+HddDevPath = "./data/hdd_dev"
+SsdBlockCapacity = 1024

@@ -66,11 +66,14 @@ impl HDDStorage {
     /// # Error
     /// - It is an error if the block file already exists
     fn create_block(&self, block_id: BlockId) -> SUResult<File> {
+        let file_path = block_id_to_path(self.dev.to_owned(), block_id);
+        let parent_dir = file_path.parent().unwrap();
+        std::fs::create_dir_all(parent_dir)?;
         match File::options()
             .write(true)
             .read(true)
             .create_new(true)
-            .open(block_id_to_path(self.dev.to_owned(), block_id))
+            .open(file_path)
         {
             Ok(f) => {
                 f.set_len(self.block_size.try_into().unwrap())?;

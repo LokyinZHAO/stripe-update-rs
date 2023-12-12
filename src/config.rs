@@ -1,4 +1,4 @@
-use std::sync::OnceLock;
+use std::{io::Read, sync::OnceLock};
 
 use crate::SUError;
 
@@ -8,15 +8,19 @@ struct Config {
     ec_k: usize,
     ec_p: usize,
     block_size: usize,
-    block_num_per_container: usize,
+    block_num: usize,
+    ssd_block_capacity: usize,
+    ssd_dev_path: std::path::PathBuf,
+    hdd_dev_path: std::path::PathBuf,
 }
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
 
-pub fn init_config(config_file: &std::path::Path) -> crate::SUResult<()> {
-    let f = std::fs::File::open(config_file)?;
+pub fn init_config_toml(config_file: &std::path::Path) -> crate::SUResult<()> {
+    let mut config_str = String::new();
+    std::fs::File::open(config_file)?.read_to_string(&mut config_str)?;
     CONFIG
-        .set(serde_json::from_reader(f).map_err(|e| SUError::other(e.to_string()))?)
+        .set(toml::from_str(&config_str).map_err(|e| SUError::other(e.to_string()))?)
         .expect("initialize config more than once");
     Ok(())
 }
@@ -33,10 +37,26 @@ pub fn ec_p() -> usize {
     get_config().ec_p
 }
 
+pub fn ec_m() -> usize {
+    ec_k() + ec_p()
+}
+
+pub fn hdd_dev_path() -> std::path::PathBuf {
+    get_config().hdd_dev_path.clone()
+}
+
+pub fn ssd_dev_path() -> std::path::PathBuf {
+    get_config().ssd_dev_path.clone()
+}
+
+pub fn ssd_block_capacity() -> usize {
+    get_config().ssd_block_capacity
+}
+
 pub fn block_size() -> usize {
     get_config().block_size
 }
 
-pub fn block_num_per_container() -> usize {
-    get_config().block_num_per_container
+pub fn block_num() -> usize {
+    get_config().block_num
 }

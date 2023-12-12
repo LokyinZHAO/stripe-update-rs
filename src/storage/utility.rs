@@ -56,15 +56,58 @@ pub fn check_slice_range(
 
 /// Convert block id to its corresponding block file path
 pub fn block_id_to_path(mut dev_root: PathBuf, block_id: BlockId) -> PathBuf {
-    dev_root.push(block_id.to_string());
+    let s = format!("{:04X}", block_id);
+    let (a, b) = s.split_at(2);
+    dev_root.push(a);
+    dev_root.push(b);
     dev_root
 }
 
 /// Convert block id to its corresponding block file path
+///
+/// # Panics
+/// If the path is not constructed by [`block_id_to_path`]
 pub fn block_path_to_id(block_path: &Path) -> BlockId {
-    let file_name = block_path
+    const ERR_STR: &str = "invalid block path";
+    let mut path = block_path.to_path_buf();
+    let b = path
         .file_name()
-        .expect("invalid block path")
-        .to_string_lossy();
-    file_name.parse().expect("invalid block path")
+        .expect(ERR_STR)
+        .to_string_lossy()
+        .to_string();
+    if !path.pop() {
+        panic!("{ERR_STR}");
+    }
+    let a = path
+        .file_name()
+        .expect(ERR_STR)
+        .to_string_lossy()
+        .to_string();
+    let s = a + b.as_str();
+    usize::from_str_radix(&s, 16).expect(ERR_STR)
+}
+
+#[cfg(test)]
+mod test {
+    use rand::Rng;
+
+    use crate::storage::utility::{block_id_to_path, block_path_to_id};
+    use std::str::FromStr;
+
+    #[test]
+    fn test_block_id_to_path() {
+        let block_id: usize = 256;
+        let root = std::path::PathBuf::from_str("./root").unwrap();
+        let path = block_id_to_path(root.clone(), block_id);
+        assert_eq!(path, std::path::PathBuf::from_str("./root/01/00").unwrap());
+        let block_id_reconstruct = block_path_to_id(&path);
+        assert_eq!(block_id_reconstruct, block_id);
+        (0..10000)
+            .map(|_| rand::thread_rng().gen::<usize>())
+            .for_each(|id| {
+                let path = block_id_to_path(root.clone(), id);
+                let r_id = block_path_to_id(&path);
+                assert_eq!(r_id, id);
+            })
+    }
 }

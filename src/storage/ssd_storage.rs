@@ -149,6 +149,7 @@ impl SSDStorage {
     /// This method may evict existing block file to maintain the ssd size.
     fn make_block_zero(&self, block_path: &Path) -> SUResult<File> {
         // create a block file
+        std::fs::create_dir_all(block_path.parent().unwrap())?;
         let f = File::options()
             .read(true)
             .write(true)

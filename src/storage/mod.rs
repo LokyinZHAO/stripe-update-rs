@@ -124,4 +124,7 @@ trait EvictStrategy {
     /// Push an item into the container.
     /// If the container is full, it returns the evicted item, other wise `None`
     fn push(&self, item: Self::Item) -> Option<Self::Item>;
+    /// Pop an item from the container.
+    /// If the container is empty, it returns `None`.
+    fn pop(&self) -> Option<Self::Item>;
 }

@@ -22,8 +22,20 @@ fn build_data(config_path: &std::path::Path, purge: bool) {
         .unwrap();
 }
 
-fn benchmark(_config_path: &std::path::Path) {
-    todo!()
+fn benchmark(config_path: &std::path::Path) {
+    use stripe_update::config;
+    stripe_update::config::init_config_toml(config_path).unwrap();
+    stripe_update::bench::Bench::new()
+        .block_num(config::block_num())
+        .block_size(config::block_size())
+        .hdd_dev_path(config::hdd_dev_path())
+        .ssd_dev_path(config::ssd_dev_path())
+        .slice_size(config::slice_size())
+        .test_num(config::test_num())
+        .ssd_block_capacity(config::ssd_block_capacity())
+        .k_p(config::ec_k(), config::ec_p())
+        .run()
+        .unwrap();
 }
 
 use clap::Subcommand;
@@ -46,6 +58,7 @@ enum Commands {
         purge: bool,
     },
     /// Benchmark
+    #[command(arg_required_else_help = true)]
     Benchmark {
         #[arg(short, long)]
         config: std::path::PathBuf,

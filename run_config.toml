@@ -1,7 +1,9 @@
 EcK = 4
 EcP = 2
 BlockSize = 1048576
-BlockNum = 10240
+BlockNum = 10242
 SsdDevPath = "./data/ssd_dev"
 HddDevPath = "./data/hdd_dev"
 SsdBlockCapacity = 1024
+TestNum = 10240
+SliceSize = 4096

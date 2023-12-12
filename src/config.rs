@@ -12,6 +12,8 @@ struct Config {
     ssd_block_capacity: usize,
     ssd_dev_path: std::path::PathBuf,
     hdd_dev_path: std::path::PathBuf,
+    test_num: usize,
+    slice_size: usize,
 }
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
@@ -59,4 +61,12 @@ pub fn block_size() -> usize {
 
 pub fn block_num() -> usize {
     get_config().block_num
+}
+
+pub fn test_num() -> usize {
+    get_config().test_num
+}
+
+pub fn slice_size() -> usize {
+    get_config().slice_size
 }

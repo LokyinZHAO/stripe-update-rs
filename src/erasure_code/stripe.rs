@@ -331,6 +331,15 @@ impl PartialStripe {
         (present, absent)
     }
 
+    /// Get an iterator over the present blocks with its index
+    pub fn iter_present(&self) -> impl Iterator<Item = (usize, &Block)> {
+        self.stripe
+            .iter()
+            .enumerate()
+            .filter(|(_, block_opt)| block_opt.is_some())
+            .map(|(id, block)| (id, block.as_ref().unwrap()))
+    }
+
     /// Get the indexes of all the present blocks.
     pub fn present_block_index(&self) -> Vec<usize> {
         self.stripe

@@ -44,6 +44,12 @@ where
             lru.push(item, ()).map(|(evict, ())| evict)
         }
     }
+
+    /// Pop the least used item from the container.
+    /// If the container is empty, it returns `None`.
+    fn pop(&self) -> Option<Self::Item> {
+        self.lru.borrow_mut().pop_lru().map(|entry| entry.0)
+    }
 }
 
 #[cfg(test)]
@@ -70,6 +76,10 @@ mod test {
         assert_eq!(lru.push(s4.clone()), Some(s3.clone())); // 4, 1, 2
         assert!(!lru.contains(&s3)); // 4, 1, 2
         assert!(lru.push(s2.clone()).is_none()); // 2, 4, 1
-        assert_eq!(lru.push(s3.clone()), Some(s1.clone())); // 3, 2, 1
+        assert_eq!(lru.push(s3.clone()), Some(s1.clone())); // 3, 2, 4
+        assert_eq!(lru.pop(), Some(s4.clone())); // 3, 2
+        assert_eq!(lru.pop(), Some(s2.clone())); // 3
+        assert_eq!(lru.pop(), Some(s3.clone()));
+        assert_eq!(lru.pop(), None);
     }
 }

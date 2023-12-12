@@ -62,7 +62,7 @@ impl DataBuilder {
 
     pub fn build(&self) -> SUResult<()> {
         const CHANNEL_SIZE: usize = 1024;
-        let (source_stripe_producer, source_stripe_consurmer) =
+        let (source_stripe_producer, source_stripe_consumer) =
             std::sync::mpsc::sync_channel::<StripeItem>(CHANNEL_SIZE);
         let (encoded_stripe_producer, encoded_stripe_consumer) =
             std::sync::mpsc::sync_channel::<StripeItem>(CHANNEL_SIZE);
@@ -99,7 +99,7 @@ impl DataBuilder {
                         .iter_mut()
                         .for_each(|b| *b = rand::thread_rng().gen())
                 });
-                let block_id_range = (stripe_id * m)..(stripe_id * m + stripe_id);
+                let block_id_range = (stripe_id * m)..(stripe_id * m + m);
                 source_stripe_producer
                     .send(StripeItem {
                         stripe,
@@ -115,7 +115,7 @@ impl DataBuilder {
             while let Ok(StripeItem {
                 mut stripe,
                 block_id_range,
-            }) = source_stripe_consurmer.recv()
+            }) = source_stripe_consumer.recv()
             {
                 ec.encode_stripe(&mut stripe).unwrap();
                 encoded_stripe_producer
@@ -143,11 +143,12 @@ impl DataBuilder {
                 block_id_range,
             }) = encoded_stripe_consumer.recv()
             {
-                let iter = stripe
+                assert_eq!(block_id_range.len(), stripe.m());
+                stripe
                     .iter_source()
                     .chain(stripe.iter_parity())
-                    .zip(block_id_range);
-                iter.for_each(|(block, id)| ssd_storage.put_block(id, &block).unwrap());
+                    .zip(block_id_range)
+                    .for_each(|(block, id)| ssd_storage.put_block(id, block).unwrap());
             }
         });
         generator_handle.join().unwrap();

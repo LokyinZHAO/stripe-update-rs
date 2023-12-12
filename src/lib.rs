@@ -1,3 +1,4 @@
+pub mod bench;
 pub mod config;
 pub mod data_builder;
 pub mod erasure_code;

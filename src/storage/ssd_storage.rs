@@ -27,6 +27,9 @@ impl SSDStorage {
     /// The number of blocks stored in ssd is bounded,
     /// and some blocks will be evicted to an unbounded storage if the number of block blocks exceeds.
     ///
+    /// This constructor will load all the blocks into the inner lru,
+    /// the out-loaded blocks will be evicted to the next unbounded storage layer.
+    ///
     /// # Parameter
     /// - `dev_path`: path to the HDD device
     /// - `block_size`: size of each block to be created
@@ -159,14 +162,48 @@ impl SSDStorage {
         f.set_len(self.block_size.try_into().unwrap())?;
         // evict block file if necessary
         if let Some(evict) = self.evict.push(block_path.to_owned()) {
-            let mut evict_file = File::open(evict.as_path())?;
-            let mut evict_data = vec![0_u8; self.block_size];
-            evict_file.read_exact(&mut evict_data)?;
-            self.next_storage
-                .put_block(block_path_to_id(evict.as_path()), &evict_data)?;
-            std::fs::remove_file(evict.as_path())?;
+            self.flush_to_next_storage(evict.as_path())?;
         }
         Ok(f)
+    }
+
+    /// Remove a block and flush it to the next storage layer.
+    ///
+    /// # Error
+    /// - [`SUError::Io`] any io related error when accessing filesystem
+    fn flush_to_next_storage(&self, path: &Path) -> SUResult<()> {
+        let mut evict_file = File::open(path)?;
+        let mut evict_data = vec![0_u8; self.block_size];
+        evict_file.read_exact(&mut evict_data)?;
+        self.next_storage
+            .put_block(block_path_to_id(path), &evict_data)?;
+        std::fs::remove_file(path)?;
+        Ok(())
+    }
+
+    /// Remove all the blocks and flush them to the next storage layer.
+    /// And remove the empty directories under `dev` root
+    ///
+    /// # Error
+    /// - [`SUError::Io`] any io related error when accessing filesystem
+    fn flush_all_to_next_storage(&self) -> SUResult<()> {
+        while let Some(block_path) = self.evict.pop() {
+            self.flush_to_next_storage(block_path.as_path())?;
+        }
+        for entry in self.dev.read_dir()?.flatten() {
+            let dir = entry.path();
+            if std::fs::read_dir(dir.as_path())?.count() == 0 {
+                std::fs::remove_dir(dir.as_path())?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Drop for SSDStorage {
+    fn drop(&mut self) {
+        self.flush_all_to_next_storage()
+            .expect("fail to flush the blocks to the next storage");
     }
 }
 
@@ -290,7 +327,7 @@ mod test {
 
     use super::{HDDStorage, SSDStorage};
     const BLOCK_SIZE: usize = 4 << 10;
-    const BLOCK_NUM: usize = 4 << 10;
+    const BLOCK_NUM: usize = 1 << 10;
     const SSD_CAP_NUM: usize = BLOCK_NUM / 3;
     fn random_block_data() -> Vec<u8> {
         rand::thread_rng()
@@ -497,6 +534,8 @@ mod test {
             .enumerate()
             .map(|(i, expect)| (expect, ssd_store.get_block_owned(i).unwrap().unwrap()))
             .for_each(|(expect, retrieved)| assert_eq!(expect, &retrieved));
+        drop(ssd_store);
+        assert_eq!(std::fs::read_dir(ssd_dev.path()).unwrap().count(), 0);
     }
 
     #[test]

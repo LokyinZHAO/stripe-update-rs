@@ -1,4 +1,8 @@
-use std::{num::NonZeroUsize, path::PathBuf};
+use std::{
+    io::Write,
+    num::NonZeroUsize,
+    path::{Path, PathBuf},
+};
 
 use bytes::BytesMut;
 
@@ -78,13 +82,25 @@ impl Bench {
         let block_num = self.block_num.expect("block num not set");
         let ssd_cap = self.ssd_cap.expect("ssd block capacity not set");
         let test_num = self.test_num.expect("test num not set");
+        fn dev_display(dev: &Path) -> String {
+            let mut display = dev.display().to_string();
+            if dev.is_symlink() {
+                display += format!(" -> {}", std::fs::read_link(dev).unwrap().display()).as_str();
+            }
+            display
+        }
+        let ssd_dev_display = dev_display(&ssd_dev_path);
+        let hdd_dev_display = dev_display(&hdd_dev_path);
         println!("RS({m}, {k})");
         println!("block size: {block_size}");
         println!("block num: {block_num}");
+        println!("hdd dev path: {hdd_dev_display}");
+        println!("ssd dev path: {ssd_dev_display}");
         println!("ssd block capacity: {ssd_cap}");
         println!("slice size: {slice_size}");
         println!("test num: {test_num}");
-        println!("benchmark start...");
+        print!("benchmark start...");
+        std::io::stdout().flush().unwrap();
         // data generator
         let generator_handle = std::thread::spawn(move || {
             use rand::Rng;
@@ -170,9 +186,9 @@ impl Bench {
         });
         generator_handle.join().unwrap();
         let (duration, cnt) = encoder_handle.join().unwrap();
-        println!("benchmark end!");
+        println!("done");
         println!(
-            "time elapsed: {}s{}ms",
+            "benchmarked {test_num} updates request in {}s{}ms",
             duration.as_secs(),
             duration.as_millis()
         );

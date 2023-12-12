@@ -1,4 +1,5 @@
 use std::{
+    io::Write,
     num::NonZeroUsize,
     path::{Path, PathBuf},
 };
@@ -73,7 +74,23 @@ impl DataBuilder {
         let hdd_dev_path = self.hdd_dev_path.clone().expect("hdd dev path not set");
         let ssd_dev_path = self.ssd_dev_path.clone().expect("ssd dev path not set");
         let ssd_cap = self.ssd_cap.expect("ssd block capacity not set");
+        fn dev_display(dev: &Path) -> String {
+            let mut display = dev.display().to_string();
+            if dev.is_symlink() {
+                display += format!(" -> {}", std::fs::read_link(dev).unwrap().display()).as_str();
+            }
+            display
+        }
+        let ssd_dev_display = dev_display(&ssd_dev_path);
+        let hdd_dev_display = dev_display(&hdd_dev_path);
+        println!("RS({m}, {k})");
+        println!("block size: {block_size}");
+        println!("block num: {block_num}");
+        println!("ssd block capacity: {ssd_cap}");
+        println!("hdd dev path: {hdd_dev_display}");
+        println!("ssd dev path: {ssd_dev_display}");
         if self.purge {
+            print!("purging dir...");
             fn purge_dir(path: &Path) -> SUResult<()> {
                 use std::fs;
                 for entry in fs::read_dir(path)? {
@@ -83,7 +100,11 @@ impl DataBuilder {
             }
             purge_dir(hdd_dev_path.as_path())?;
             purge_dir(ssd_dev_path.as_path())?;
+            println!("done")
         }
+        print!("building data...");
+        std::io::stdout().flush().unwrap();
+        let epoch = std::time::Instant::now();
         // data generator
         let generator_handle = std::thread::spawn(move || {
             use rand::Rng;
@@ -154,6 +175,17 @@ impl DataBuilder {
         generator_handle.join().unwrap();
         encoder_handle.join().unwrap();
         store_handle.join().unwrap();
+        let elapsed = epoch.elapsed();
+        println!("done");
+        println!(
+            "built {block_num} blocks in {}s{}ms",
+            elapsed.as_secs(),
+            elapsed.as_millis()
+        );
+        println!(
+            "throughput: {} blocks/s",
+            block_num / usize::try_from(elapsed.as_secs()).unwrap()
+        );
         Ok(())
     }
 }

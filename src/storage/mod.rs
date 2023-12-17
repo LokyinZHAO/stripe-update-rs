@@ -1,12 +1,13 @@
-#[allow(unused_imports)]
-use crate::SUError;
 use crate::SUResult;
 
+mod evict;
 mod hdd_storage;
 mod lru_evict;
 mod ssd_storage;
 mod utility;
 
+pub use evict::EvictStrategySlice;
+pub use evict::MostModifiedEvict;
 pub use hdd_storage::HDDStorage;
 pub use ssd_storage::SSDStorage;
 

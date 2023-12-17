@@ -12,7 +12,7 @@ use crate::{
 use super::Bench;
 
 impl Bench {
-    pub fn baseline(&self) -> SUResult<()> {
+    pub(super) fn baseline(&self) -> SUResult<()> {
         const CHANNEL_SIZE: usize = 1024;
         let (update_producer, update_consumer) =
             std::sync::mpsc::sync_channel::<UpdateItem>(CHANNEL_SIZE);

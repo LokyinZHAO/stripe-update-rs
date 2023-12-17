@@ -3,11 +3,24 @@ use std::path::{Path, PathBuf};
 use crate::SUResult;
 
 mod baseline;
+mod dryrun;
 
-#[derive(Debug, Default)]
-enum Manner {
+#[derive(Debug, Default, serde::Deserialize, Clone, clap::ValueEnum)]
+pub enum Manner {
+    /// No optimization, ssd fetches and updates in block unit.
     #[default]
     Baseline,
+    /// No disk write/read is performed, only generate and report disk access trace.
+    TraceDryRun,
+}
+
+impl std::fmt::Display for Manner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Manner::Baseline => f.write_str("baseline"),
+            Manner::TraceDryRun => f.write_str("trace_dryrun"),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -20,6 +33,7 @@ pub struct Bench {
     k_p: Option<(usize, usize)>,
     test_num: Option<usize>,
     slice_size: Option<usize>,
+    out_dir_path: Option<PathBuf>,
     manner: Manner,
 }
 
@@ -43,13 +57,13 @@ impl Bench {
         self
     }
 
-    pub fn ssd_dev_path(&mut self, ssd_dev_path: impl AsRef<std::path::Path>) -> &mut Self {
-        self.ssd_dev_path = Some(ssd_dev_path.as_ref().to_path_buf());
+    pub fn ssd_dev_path(&mut self, ssd_dev_path: impl Into<PathBuf>) -> &mut Self {
+        self.ssd_dev_path = Some(ssd_dev_path.into());
         self
     }
 
-    pub fn hdd_dev_path(&mut self, hdd_dev_path: impl AsRef<std::path::Path>) -> &mut Self {
-        self.hdd_dev_path = Some(hdd_dev_path.as_ref().to_path_buf());
+    pub fn hdd_dev_path(&mut self, hdd_dev_path: impl Into<PathBuf>) -> &mut Self {
+        self.hdd_dev_path = Some(hdd_dev_path.into());
         self
     }
 
@@ -68,9 +82,20 @@ impl Bench {
         self
     }
 
+    pub fn manner(&mut self, manner: Manner) -> &mut Self {
+        self.manner = manner;
+        self
+    }
+
+    pub fn out_dir_path(&mut self, out_dir_path: impl Into<PathBuf>) -> &mut Self {
+        self.out_dir_path = Some(out_dir_path.into());
+        self
+    }
+
     pub fn run(&self) -> SUResult<()> {
         match self.manner {
             Manner::Baseline => self.baseline(),
+            Manner::TraceDryRun => self.dryrun(),
         }
     }
 }

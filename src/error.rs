@@ -17,12 +17,13 @@ impl SUError {
         Self::InvalidArg(e.to_string())
     }
 
-    pub(crate) fn other(e: impl ToString) -> Self {
-        Self::Other(e.to_string())
+    #[allow(dead_code)]
+    pub(crate) fn other(e: impl Into<String>, (file, line, column): (&str, u32, u32)) -> Self {
+        Self::Other(format!("{}, at: {}:{}:{}", e.into(), file, line, column))
     }
 
     pub(crate) fn out_of_range(
-        source_location: impl ToString,
+        source_location: impl Into<String>,
         valid_range: std::ops::Range<usize>,
         illegal_range: std::ops::Range<usize>,
     ) -> Self {
@@ -32,12 +33,12 @@ impl SUError {
             illegal_range.end,
             valid_range.start,
             valid_range.end,
-            source_location.to_string()
+            source_location.into()
         ))
     }
 
     pub(crate) fn range_not_match(
-        source_location: impl ToString,
+        source_location: impl Into<String>,
         valid_range: std::ops::Range<usize>,
         illegal_range: std::ops::Range<usize>,
     ) -> Self {
@@ -47,14 +48,17 @@ impl SUError {
             illegal_range.end,
             valid_range.start,
             valid_range.end,
-            source_location.to_string()
+            source_location.into()
         ))
     }
 
-    pub(crate) fn erasure_code(source_location: (&str, u32, u32), errstr: impl ToString) -> Self {
+    pub(crate) fn erasure_code(
+        source_location: (&str, u32, u32),
+        errstr: impl Into<String>,
+    ) -> Self {
         Self::ErasureCode(format!(
             "error: {{{}}}, at: {{{}:{}:{}}}",
-            errstr.to_string(),
+            errstr.into(),
             source_location.0,
             source_location.1,
             source_location.2

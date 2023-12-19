@@ -2,7 +2,7 @@ use std::{cell::RefCell, num::NonZeroUsize};
 
 use super::EvictStrategy;
 
-pub(super) struct LruEvict<T> {
+pub struct LruEvict<T> {
     lru: RefCell<lru::LruCache<T, ()>>,
 }
 
@@ -56,7 +56,7 @@ where
 mod test {
     use std::num::NonZeroUsize;
 
-    use crate::storage::EvictStrategy;
+    use crate::storage::evict::EvictStrategy;
 
     use super::LruEvict;
 

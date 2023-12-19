@@ -23,32 +23,41 @@ impl SUError {
     }
 
     pub(crate) fn out_of_range(
-        source_location: impl Into<String>,
-        valid_range: std::ops::Range<usize>,
+        (file, line, column): (&str, u32, u32),
+        valid_range: Option<std::ops::Range<usize>>,
         illegal_range: std::ops::Range<usize>,
     ) -> Self {
-        Self::Range(format!(
-            "error: {{[{}..{}) is out of range [{}..{})}}, at: {{[{}]}}",
-            illegal_range.start,
-            illegal_range.end,
-            valid_range.start,
-            valid_range.end,
-            source_location.into()
-        ))
+        let source_location = format!("{}:{}:{}", file, line, column);
+        if let Some(valid_range) = valid_range {
+            Self::Range(format!(
+                "error: {{[{}..{}) is out of range [{}..{})}}, at: {{[{}]}}",
+                illegal_range.start,
+                illegal_range.end,
+                valid_range.start,
+                valid_range.end,
+                source_location
+            ))
+        } else {
+            Self::Range(format!(
+                "error: {{[{}..{}) is out of range, at: {{[{}]}}",
+                illegal_range.start, illegal_range.end, source_location
+            ))
+        }
     }
 
     pub(crate) fn range_not_match(
-        source_location: impl Into<String>,
+        (file, line, column): (&str, u32, u32),
         valid_range: std::ops::Range<usize>,
         illegal_range: std::ops::Range<usize>,
     ) -> Self {
+        let source_location = format!("{}:{}:{}", file, line, column);
         Self::Range(format!(
             "error: {{[{}..{}) does not match range [{}..{})}}, at: {{[{}]}}",
             illegal_range.start,
             illegal_range.end,
             valid_range.start,
             valid_range.end,
-            source_location.into()
+            source_location
         ))
     }
 

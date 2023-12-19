@@ -214,8 +214,8 @@ impl ErasureCode for ReedSolomon {
         let range = offset..(offset + update_slice.len());
         if !valid_range.contains(&range.start) || !valid_range.contains(&(range.end - 1)) {
             return Err(SUError::out_of_range(
-                format!("{}:{}:{}", file!(), line!(), column!()),
-                valid_range,
+                (file!(), line!(), column!()),
+                Some(valid_range),
                 range,
             ));
         }
@@ -229,8 +229,8 @@ impl ErasureCode for ReedSolomon {
         let target_source = source.get_mut(update_source_idx);
         if target_source.is_none() {
             return Err(SUError::out_of_range(
-                format!("{}:{}:{}", file!(), line!(), column!()),
-                valid_range,
+                (file!(), line!(), column!()),
+                Some(valid_range),
                 0..update_source_idx,
             ));
         }

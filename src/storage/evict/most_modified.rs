@@ -63,6 +63,28 @@ impl EvictStrategySlice for MostModifiedEvict {
         self.queue.borrow().get_priority(&block_id).is_some()
     }
 
+    /// Return the current size of the slices stored.
+    fn len(&self) -> usize {
+        self.cur_size.get()
+    }
+
+    /// Return the maximum slice size can store before eviction.
+    fn capacity(&self) -> usize {
+        self.max_size
+    }
+
+    /// Get the slice ranges corresponding to the block.
+    ///
+    /// # Returns
+    /// - [`Some`] with the modified ranges if the block exists
+    /// - [`None`] if the block does not exist
+    fn get(&self, block_id: BlockId) -> Option<RangeSet> {
+        self.queue
+            .borrow()
+            .get_priority(&block_id)
+            .map(|ranges| ranges.0.clone())
+    }
+
     /// Push a slice range to a block.
     /// If the block already exists, the corresponding slice range will be merged and updated.
     /// If the block does not exist, a new entry will be inserted.
@@ -85,9 +107,10 @@ impl EvictStrategySlice for MostModifiedEvict {
             .get_priority(&block_id)
             .map(|ranges| ranges.to_owned())
             .unwrap_or_default();
-        let inc_size = new_range.0.insert(range);
-        (inc_size > 0)
+        let inc_ranges = new_range.0.insert(range);
+        (!inc_ranges.is_empty())
             .then(|| {
+                let inc_size: usize = inc_ranges.iter().map(std::ops::Range::len).sum();
                 queue.push(block_id, new_range);
                 self.cur_size.set(self.cur_size.get() + inc_size);
                 (self.cur_size.get() > self.max_size).then(|| {
@@ -107,10 +130,10 @@ impl EvictStrategySlice for MostModifiedEvict {
     /// - [`Some`] a block with its corresponding ranges popped by a specific eviction strategy
     /// - [`None`] if empty
     fn pop(&self) -> Option<(crate::storage::BlockId, super::RangeSet)> {
-        self.queue
-            .borrow_mut()
-            .pop()
-            .map(|(block_id, ranges)| (block_id, ranges.0))
+        self.queue.borrow_mut().pop().map(|(block_id, ranges)| {
+            self.cur_size.set(self.cur_size.get() - ranges.0.len());
+            (block_id, ranges.0)
+        })
     }
 }
 

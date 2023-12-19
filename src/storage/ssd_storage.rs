@@ -10,9 +10,9 @@ use crate::{SUError, SUResult};
 
 use super::{
     check_block_range,
-    lru_evict::LruEvict,
+    evict::{EvictStrategy, LruEvict},
     utility::{block_id_to_path, block_path_to_id, check_slice_range},
-    BlockId, BlockStorage, EvictStrategy, HDDStorage, SliceStorage,
+    BlockId, BlockStorage, HDDStorage, SliceStorage,
 };
 
 pub struct SSDStorage {

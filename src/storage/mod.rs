@@ -2,13 +2,14 @@ use crate::SUResult;
 
 mod evict;
 mod hdd_storage;
-mod lru_evict;
+mod slice_buffer;
 mod ssd_storage;
 mod utility;
 
 pub use evict::EvictStrategySlice;
 pub use evict::MostModifiedEvict;
 pub use hdd_storage::HDDStorage;
+pub use slice_buffer::FixedSizeSliceBuf;
 pub use ssd_storage::SSDStorage;
 
 pub type BlockId = usize;
@@ -59,7 +60,7 @@ pub trait BlockStorage {
     fn block_size(&self) -> usize;
 }
 
-pub trait SliceStorage: BlockStorage {
+pub trait SliceStorage {
     /// Storing data from a slice to a specific area of a block.
     /// The block area to store is defined as `Block[inner_block_offset, inner_block_offset + slice_data.len())`.
     ///
@@ -118,14 +119,43 @@ pub trait SliceStorage: BlockStorage {
     }
 }
 
-trait EvictStrategy {
-    type Item;
-    /// Return `true` if the evict contains an element equal to `item`, otherwise false
-    fn contains(&self, item: &Self::Item) -> bool;
-    /// Push an item into the container.
-    /// If the container is full, it returns the evicted item, other wise `None`
-    fn push(&self, item: Self::Item) -> Option<Self::Item>;
-    /// Pop an item from the container.
-    /// If the container is empty, it returns `None`.
-    fn pop(&self) -> Option<Self::Item>;
+pub struct BufferEviction {
+    pub block_id: BlockId,
+    pub data: PartialBlock,
+}
+
+pub trait SliceBuffer {
+    /// Push a slice to the buffer.
+    /// The slice is treated as part of a block at range`[inner_block_offset..inner_block_offset + slice_data.len())`
+    /// If part of the slice is already in the buffer, it will be updated.
+    /// And the non-existing part of the slice will be inserted.
+    ///
+    /// # Note
+    /// The size of the buffer is typically fixed, therefor, any slice put may cause an eviction.
+    ///
+    /// # Return
+    /// - [`Ok(Some)`] if the slice is successfully put into the buffer, and an eviction occurs
+    /// - [`Ok(None)`] if the slice is successfully put into the buffer, and no eviction occurs
+    /// - [`Err`] if any error occurs
+    fn push_slice(
+        &self,
+        block_id: BlockId,
+        inner_block_offset: usize,
+        slice_data: &[u8],
+    ) -> SUResult<Option<BufferEviction>>;
+
+    fn pop(&self) -> Option<BufferEviction>;
+}
+
+#[derive(Debug, Clone)]
+pub enum SliceOpt {
+    /// data of the present slice
+    Present(bytes::Bytes),
+    /// size of the absent slice
+    Absent(usize),
+}
+
+pub struct PartialBlock {
+    pub size: usize,
+    pub slices: Vec<SliceOpt>,
 }

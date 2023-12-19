@@ -17,9 +17,8 @@ pub fn check_block_range(
     block_size: usize,
 ) -> SUResult<()> {
     if data_len != block_size {
-        let source_location = format!("{}:{}:{}", file, line, column);
         return Err(SUError::range_not_match(
-            source_location,
+            (file, line, column),
             0..block_size,
             0..data_len,
         ));
@@ -46,8 +45,8 @@ pub fn check_slice_range(
     let valid_range = 0..block_size;
     if !valid_range.contains(&range.start) || !valid_range.contains(&(range.end - 1)) {
         return Err(SUError::out_of_range(
-            format!("{file}:{line}:{column}"),
-            valid_range,
+            (file, line, column),
+            Some(valid_range),
             range,
         ));
     }
@@ -55,9 +54,10 @@ pub fn check_slice_range(
 }
 
 /// Convert block id to its corresponding block file path
-pub fn block_id_to_path(mut dev_root: PathBuf, block_id: BlockId) -> PathBuf {
+pub fn block_id_to_path(dev_root: impl Into<PathBuf>, block_id: BlockId) -> PathBuf {
     let s = format!("{:04X}", block_id);
     let (a, b) = s.split_at(2);
+    let mut dev_root = dev_root.into();
     dev_root.push(a);
     dev_root.push(b);
     dev_root

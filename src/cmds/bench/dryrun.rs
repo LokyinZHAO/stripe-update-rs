@@ -7,7 +7,7 @@ use crate::{storage::MostModifiedEvict, SUResult};
 
 use super::Bench;
 
-const PLOT_FILE_NAME: &'static str = "dryrun-trace.svg";
+const PLOT_FILE_NAME: &str = "dryrun-trace.svg";
 
 /// Draw a plot named with `dryrun-trace` in `out_path`
 ///

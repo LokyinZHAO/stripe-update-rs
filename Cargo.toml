@@ -19,9 +19,14 @@ toml = "0.8.8"
 range-collections = "0.4.5"
 priority-queue = "1.3.2"
 plotters = "0.3.5"
+bytesize = { version = "1.2.0", features = ["serde"] }
+indicatif = "0.17.7"
+smallvec = "1.11.2"
 
 [dev-dependencies]
 hex = "0.4.3"
 
-[profile.release]
+# Release with debuf infomation
+[profile.rel-info]
+inherits = "release"
 debug = true

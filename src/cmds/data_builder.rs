@@ -1,8 +1,9 @@
 use std::{
-    io::Write,
     num::NonZeroUsize,
     path::{Path, PathBuf},
 };
+
+use indicatif::ProgressIterator;
 
 use crate::{
     erasure_code::{ErasureCode, ReedSolomon, Stripe},
@@ -70,6 +71,7 @@ impl DataBuilder {
         let (k, p) = self.k_p.expect("k or p not set");
         let m = k + p;
         let block_num = self.block_num.expect("block num not set");
+        let stripe_num = block_num / m;
         let block_size = self.block_size.expect("block size not set");
         let hdd_dev_path = self.hdd_dev_path.clone().expect("hdd dev path not set");
         let ssd_dev_path = self.ssd_dev_path.clone().expect("ssd dev path not set");
@@ -86,6 +88,7 @@ impl DataBuilder {
         println!("RS({m}, {k})");
         println!("block size: {block_size}");
         println!("block num: {block_num}");
+        println!("stripe num: {stripe_num}");
         println!("ssd block capacity: {ssd_cap}");
         println!("hdd dev path: {hdd_dev_display}");
         println!("ssd dev path: {ssd_dev_display}");
@@ -102,13 +105,10 @@ impl DataBuilder {
             purge_dir(ssd_dev_path.as_path())?;
             println!("done")
         }
-        print!("building data...");
-        std::io::stdout().flush().unwrap();
         let epoch = std::time::Instant::now();
         // data generator
         let generator_handle = std::thread::spawn(move || {
             use rand::Rng;
-            let stripe_num = block_num / m;
             (0..stripe_num).for_each(|stripe_id| {
                 let mut stripe = Stripe::zero(
                     NonZeroUsize::new(k).unwrap(),
@@ -159,24 +159,33 @@ impl DataBuilder {
                 hdd_storage,
             )
             .unwrap();
-            while let Ok(StripeItem {
-                stripe,
-                block_id_range,
-            }) = encoded_stripe_consumer.recv()
-            {
-                assert_eq!(block_id_range.len(), stripe.m());
-                stripe
-                    .iter_source()
-                    .chain(stripe.iter_parity())
-                    .zip(block_id_range)
-                    .for_each(|(block, id)| ssd_storage.put_block(id, block).unwrap());
-            }
+            (0..stripe_num)
+                .map(|_| {
+                    encoded_stripe_consumer
+                        .recv()
+                        .expect("fail to recv a stripe to store")
+                })
+                .progress_with_style(super::progress_style_template(Some("building data...")))
+                .for_each(
+                    |StripeItem {
+                         stripe,
+                         block_id_range,
+                     }| {
+                        assert_eq!(block_id_range.len(), stripe.m());
+                        stripe
+                            .iter_source()
+                            .chain(stripe.iter_parity())
+                            .zip(block_id_range)
+                            .for_each(|(block, id)| ssd_storage.put_block(id, block).unwrap());
+                    },
+                );
+            assert!(encoded_stripe_consumer.recv().is_err());
+            println!("building data...done");
         });
         generator_handle.join().unwrap();
         encoder_handle.join().unwrap();
         store_handle.join().unwrap();
         let elapsed = epoch.elapsed();
-        println!("done");
         println!(
             "built {block_num} blocks in {}s{}ms",
             elapsed.as_secs(),

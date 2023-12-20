@@ -1,6 +1,6 @@
 [package]
 name = "stripe-update"
-version = "1.0.1"
+version = "1.1.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -22,6 +22,7 @@ plotters = "0.3.5"
 bytesize = { version = "1.2.0", features = ["serde"] }
 indicatif = "0.17.7"
 smallvec = "1.11.2"
+walkdir = "2.4.0"
 
 [dev-dependencies]
 hex = "0.4.3"

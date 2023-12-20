@@ -78,7 +78,7 @@ impl Bench {
         let block_size = self.block_size.expect("block size not set");
         let slice_size = self.slice_size.expect("slice size not set");
         let block_num = self.block_num.expect("block num not set");
-        let ssd_cap = self.ssd_cap.expect("ssd block capacity not set");
+        let ssd_cap = self.ssd_block_cap.expect("ssd block capacity not set");
         let test_num = self.test_num.expect("test num not set");
         let out_dir_path = self.out_dir_path.to_owned().expect("out dir path not set");
         let ssd_cap_size = ssd_cap * block_size;

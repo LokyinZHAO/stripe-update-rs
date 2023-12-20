@@ -33,7 +33,7 @@ fn benchmark(config_path: &std::path::Path, manner: Manner) {
         .hdd_dev_path(config::hdd_dev_path())
         .ssd_dev_path(config::ssd_dev_path())
         .slice_size(config::slice_size())
-        .test_num(config::test_load())
+        .test_load(config::test_load())
         .ssd_block_capacity(config::ssd_block_capacity())
         .k_p(config::ec_k(), config::ec_p())
         .out_dir_path(config::out_dir_path())

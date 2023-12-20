@@ -7,7 +7,7 @@ use indicatif::ProgressIterator;
 
 use crate::{
     erasure_code::{ErasureCode, ReedSolomon, Stripe},
-    storage::{BlockStorage, HDDStorage, SSDStorage},
+    storage::{BlockStorage, HDDStorage},
     SUResult,
 };
 
@@ -71,11 +71,12 @@ impl DataBuilder {
         let (k, p) = self.k_p.expect("k or p not set");
         let m = k + p;
         let block_num = self.block_num.expect("block num not set");
+        if block_num % m != 0 {
+            panic!("block number: {block_num} is not multiple of ec m: {m}");
+        }
         let stripe_num = block_num / m;
         let block_size = self.block_size.expect("block size not set");
         let hdd_dev_path = self.hdd_dev_path.clone().expect("hdd dev path not set");
-        let ssd_dev_path = self.ssd_dev_path.clone().expect("ssd dev path not set");
-        let ssd_cap = self.ssd_cap.expect("ssd block capacity not set");
         fn dev_display(dev: &Path) -> String {
             let mut display = dev.display().to_string();
             if dev.is_symlink() {
@@ -83,15 +84,12 @@ impl DataBuilder {
             }
             display
         }
-        let ssd_dev_display = dev_display(&ssd_dev_path);
         let hdd_dev_display = dev_display(&hdd_dev_path);
         println!("RS({m}, {k})");
         println!("block size: {block_size}");
         println!("block num: {block_num}");
         println!("stripe num: {stripe_num}");
-        println!("ssd block capacity: {ssd_cap}");
         println!("hdd dev path: {hdd_dev_display}");
-        println!("ssd dev path: {ssd_dev_display}");
         if self.purge {
             print!("purging dir...");
             fn purge_dir(path: &Path) -> SUResult<()> {
@@ -102,7 +100,6 @@ impl DataBuilder {
                 Ok(())
             }
             purge_dir(hdd_dev_path.as_path())?;
-            purge_dir(ssd_dev_path.as_path())?;
             println!("done")
         }
         let epoch = std::time::Instant::now();
@@ -152,13 +149,6 @@ impl DataBuilder {
             let hdd_storage =
                 HDDStorage::connect_to_dev(hdd_dev_path, NonZeroUsize::new(block_size).unwrap())
                     .unwrap();
-            let ssd_storage = SSDStorage::connect_to_dev(
-                ssd_dev_path,
-                NonZeroUsize::new(block_size).unwrap(),
-                NonZeroUsize::new(ssd_cap).unwrap(),
-                hdd_storage,
-            )
-            .unwrap();
             (0..stripe_num)
                 .map(|_| {
                     encoded_stripe_consumer
@@ -176,7 +166,7 @@ impl DataBuilder {
                             .iter_source()
                             .chain(stripe.iter_parity())
                             .zip(block_id_range)
-                            .for_each(|(block, id)| ssd_storage.put_block(id, block).unwrap());
+                            .for_each(|(block, id)| hdd_storage.put_block(id, block).unwrap());
                     },
                 );
             assert!(encoded_stripe_consumer.recv().is_err());
@@ -193,7 +183,7 @@ impl DataBuilder {
         );
         println!(
             "throughput: {} blocks/s",
-            block_num / usize::try_from(elapsed.as_secs()).unwrap()
+            block_num * 1000 * 1000 / usize::try_from(elapsed.as_micros()).unwrap()
         );
         Ok(())
     }

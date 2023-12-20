@@ -27,7 +27,7 @@ impl std::fmt::Display for Manner {
 pub struct Bench {
     block_size: Option<usize>,
     block_num: Option<usize>,
-    ssd_cap: Option<usize>,
+    ssd_block_cap: Option<usize>,
     ssd_dev_path: Option<PathBuf>,
     hdd_dev_path: Option<PathBuf>,
     k_p: Option<(usize, usize)>,
@@ -53,7 +53,7 @@ impl Bench {
     }
 
     pub fn ssd_block_capacity(&mut self, ssd_block_capacity: usize) -> &mut Self {
-        self.ssd_cap = Some(ssd_block_capacity);
+        self.ssd_block_cap = Some(ssd_block_capacity);
         self
     }
 
@@ -72,7 +72,7 @@ impl Bench {
         self
     }
 
-    pub fn test_num(&mut self, num: usize) -> &mut Self {
+    pub fn test_load(&mut self, num: usize) -> &mut Self {
         self.test_num = Some(num);
         self
     }

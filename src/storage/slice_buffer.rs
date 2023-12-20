@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-    storage::{PartialBlock, SliceOpt},
+    storage::{utility::block_id_to_path, PartialBlock, SliceOpt},
     SUError, SUResult,
 };
 
@@ -122,6 +122,36 @@ where
         let eviction = self.evict.push(block_id, slice_range.clone());
         // put data
         let mut update_buf_map = self.seg_map.borrow_mut();
+        if cfg!(debug_assertions) {
+            // check map and storage is consistent
+            let map_path = update_buf_map
+                .iter()
+                .map(|(id, _)| block_id_to_path(self.dev_dir.as_path(), *id))
+                .collect::<std::collections::BTreeSet<_>>();
+            let storage = walkdir::WalkDir::new(self.dev_dir.as_path())
+                .into_iter()
+                .map(|p| p.unwrap().path().to_path_buf())
+                .filter(|p| p.is_file())
+                .collect::<std::collections::BTreeSet<_>>();
+            let diff = map_path
+                .difference(&storage)
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>();
+            assert!(
+                diff.is_empty(),
+                "map > storage, diff: {}",
+                diff.first().unwrap()
+            );
+            let diff = storage
+                .difference(&map_path)
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>();
+            assert!(
+                diff.is_empty(),
+                "map < storage, diff: {}",
+                diff.first().unwrap()
+            );
+        }
         let path = super::block_id_to_path(self.dev_dir.to_owned(), block_id);
         if let Some(map_record) = update_buf_map.get_mut(&block_id) {
             let mut f = std::fs::File::options()
@@ -159,11 +189,13 @@ where
             let val = update_buf_map.insert(block_id, btree_map);
             debug_assert!(val.is_none());
             std::fs::create_dir_all(path.parent().unwrap())?;
+            debug_assert!(!path.exists());
             let mut f = std::fs::OpenOptions::new()
                 .create_new(true)
                 .write(true)
                 .read(true)
-                .open(path)?;
+                .open(path)
+                .unwrap();
             f.write_all(slice_data)?;
         }
         drop(update_buf_map);

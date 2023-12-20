@@ -44,7 +44,7 @@ fn do_update<E: ErasureCode>(
     let mut update_source = BytesMut::zeroed(block_size);
     update_slices.iter().for_each(|slice| match slice {
         crate::storage::SliceOpt::Present(data) => {
-            update_source[source_offset..source_offset + data.len()].copy_from_slice(&data);
+            update_source[source_offset..source_offset + data.len()].copy_from_slice(data);
             source_offset += data.len();
         }
         crate::storage::SliceOpt::Absent(size) => {
@@ -75,7 +75,7 @@ fn do_update<E: ErasureCode>(
         .unwrap();
     partial_stripe.iter_present().for_each(|(id, block)| {
         let id = block_id - block_id % m + id;
-        hdd_storage.put_block(id, &block).unwrap();
+        hdd_storage.put_block(id, block).unwrap();
     });
 }
 
@@ -181,8 +181,12 @@ impl Bench {
                 data: PartialBlock { size, slices },
             }) = ssd_storage.pop()
             {
+                let epoch = std::time::Instant::now();
                 debug_assert_eq!(size, block_size);
                 do_update(&update_ctx, block_id, slices);
+                duration += epoch.elapsed();
+                cnt += 1;
+                ack_producer.send(Ack()).unwrap();
             }
             (duration, cnt)
         });
@@ -194,7 +198,11 @@ impl Bench {
                 )))
                 .for_each(|_| {
                     ack_consumer.recv().unwrap();
-                })
+                });
+            print!("clean up updates buffered in ssd...");
+            std::io::stdout().flush().unwrap();
+            while let Ok(_ack) = ack_consumer.recv() {}
+            println!("done");
         })
         .join()
         .unwrap();

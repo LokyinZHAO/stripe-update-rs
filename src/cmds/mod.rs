@@ -1,4 +1,5 @@
 pub mod bench;
+pub mod clean;
 pub mod data_builder;
 
 fn progress_style_template(msg: Option<&str>) -> indicatif::ProgressStyle {

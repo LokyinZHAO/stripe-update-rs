@@ -11,20 +11,27 @@ use crate::{
     SUError, SUResult,
 };
 
-use super::{evict::RangeSet, BlockId, BufferEviction, EvictStrategySlice, MostModifiedEvict};
+use super::{evict::RangeSet, BlockId, BufferEviction, EvictStrategySlice, MostModifiedBlockEvict};
 
 type SegId = usize;
 type RecordIdx = usize;
 const SEG_SIZE: usize = 4 << 10;
 
-pub struct FixedSizeSliceBuf<E = MostModifiedEvict> {
+#[derive(Debug)]
+pub struct FixedSizeSliceBuf<E = MostModifiedBlockEvict>
+where
+    E: std::fmt::Debug,
+{
     evict: E,
     dev_dir: PathBuf,
     block_size: usize,
     seg_map: RefCell<HashMap<BlockId, std::collections::BTreeMap<SegId, RecordIdx>>>,
 }
 
-impl<E> FixedSizeSliceBuf<E> {
+impl<E> FixedSizeSliceBuf<E>
+where
+    E: std::fmt::Debug,
+{
     pub fn cleanup_dev(&self) -> SUResult<()> {
         for entry in self.dev_dir.read_dir()?.flatten() {
             let dir = entry.path();
@@ -36,7 +43,32 @@ impl<E> FixedSizeSliceBuf<E> {
     }
 }
 
-impl FixedSizeSliceBuf<MostModifiedEvict> {
+impl<E> FixedSizeSliceBuf<E>
+where
+    E: EvictStrategySlice,
+{
+    pub fn connect_to_dev_with_evict(
+        dev_root: impl Into<PathBuf>,
+        block_size: NonZeroUsize,
+        evict: E,
+    ) -> SUResult<Self> {
+        let dev_root = dev_root.into();
+        if !dev_root.exists() {
+            return Err(SUError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "dev path not found",
+            )));
+        }
+        Ok(Self {
+            evict,
+            dev_dir: dev_root,
+            block_size: block_size.get(),
+            seg_map: Default::default(),
+        })
+    }
+}
+
+impl FixedSizeSliceBuf<MostModifiedBlockEvict> {
     pub fn connect_to_dev(
         dev_root: impl Into<PathBuf>,
         block_size: NonZeroUsize,
@@ -50,7 +82,7 @@ impl FixedSizeSliceBuf<MostModifiedEvict> {
             )));
         }
         Ok(Self {
-            evict: MostModifiedEvict::with_max_size(capacity),
+            evict: MostModifiedBlockEvict::with_max_size(capacity),
             dev_dir: dev_root,
             block_size: block_size.get(),
             seg_map: Default::default(),
@@ -58,7 +90,10 @@ impl FixedSizeSliceBuf<MostModifiedEvict> {
     }
 }
 
-impl<E> FixedSizeSliceBuf<E> {
+impl<E> FixedSizeSliceBuf<E>
+where
+    E: std::fmt::Debug,
+{
     /// Make an eviction from the block id.
     /// The record file and the log for this block will also be removed.
     ///
@@ -93,7 +128,10 @@ impl<E> FixedSizeSliceBuf<E> {
     }
 }
 
-impl<E> Drop for FixedSizeSliceBuf<E> {
+impl<E> Drop for FixedSizeSliceBuf<E>
+where
+    E: std::fmt::Debug,
+{
     fn drop(&mut self) {
         self.cleanup_dev().unwrap_or_else(|e| {
             eprintln!(
@@ -204,8 +242,18 @@ where
 
     fn pop(&self) -> Option<super::BufferEviction> {
         self.evict
-            .pop()
+            .pop_first()
             .map(|evict| self.make_buffer_eviction(evict.0, evict.1))
+    }
+
+    fn len(&self) -> usize {
+        self.evict.len()
+    }
+
+    fn pop_one(&self, block_id: BlockId) -> Option<BufferEviction> {
+        self.evict
+            .pop_with_id(block_id)
+            .map(|evict| self.make_buffer_eviction(block_id, evict))
     }
 }
 

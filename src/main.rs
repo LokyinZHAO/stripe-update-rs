@@ -4,6 +4,7 @@ fn main() {
     match args.cmd {
         Commands::BuildData { config, purge } => build_data(&config, purge),
         Commands::Benchmark { config, manner } => benchmark(&config, manner),
+        Commands::Clean { config } => todo!(),
     };
 }
 
@@ -73,5 +74,12 @@ enum Commands {
         /// bench mark manners
         #[arg(short, long, default_value_t = Manner::Baseline)]
         manner: Manner,
+    },
+    /// Clean up the dev directory
+    #[command(arg_required_else_help = true)]
+    Clean {
+        /// configuration file in toml format
+        #[arg(short, long)]
+        config: std::path::PathBuf,
     },
 }

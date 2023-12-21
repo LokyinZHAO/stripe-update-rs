@@ -1,6 +1,7 @@
 use std::{
     cell::{Cell, RefCell},
     num::NonZeroUsize,
+    ops::Range,
 };
 
 use crate::storage::BlockId;
@@ -36,13 +37,14 @@ type InnerQueue = RefCell<priority_queue::PriorityQueue<BlockId, RangeSetCmpByLe
 /// If current size exceeds the maximum size, a block with the max slice size will be evicted.
 ///
 /// This can be used as the most modified eviction strategy.
-pub struct MostModifiedEvict {
+#[derive(Debug)]
+pub struct MostModifiedBlockEvict {
     queue: InnerQueue,
     max_size: usize,
     cur_size: Cell<usize>,
 }
 
-impl MostModifiedEvict {
+impl MostModifiedBlockEvict {
     /// Make a [`MostModifiedEvict`] instance.
     ///
     /// # Parameter
@@ -57,7 +59,7 @@ impl MostModifiedEvict {
     }
 }
 
-impl EvictStrategySlice for MostModifiedEvict {
+impl EvictStrategySlice for MostModifiedBlockEvict {
     /// Return `true` if the evict contains a block, otherwise `false`.
     fn contains(&self, block_id: crate::storage::BlockId) -> bool {
         self.queue.borrow().get_priority(&block_id).is_some()
@@ -103,15 +105,24 @@ impl EvictStrategySlice for MostModifiedEvict {
         range: std::ops::Range<usize>,
     ) -> Option<(crate::storage::BlockId, super::RangeSet)> {
         let mut queue = self.queue.borrow_mut();
-        let mut new_range = queue
-            .get_priority(&block_id)
-            .map(|ranges| ranges.to_owned())
-            .unwrap_or_default();
-        let inc_ranges = new_range.0.insert(range);
+        let inc_ranges = if queue.get_priority(&block_id).is_some() {
+            let mut inc_range_opt = None::<smallvec::SmallVec<[Range<usize>; 1]>>;
+            let ret = queue.change_priority_by(&block_id, |range_set| {
+                let inc_range = range_set.0.insert(range);
+                inc_range_opt = Some(inc_range)
+            });
+            assert!(ret);
+            inc_range_opt.unwrap()
+        } else {
+            let mut range_set = RangeSet::default();
+            let inc_range = range_set.insert(range.clone());
+            let ret = queue.push(block_id, RangeSetCmpByLen(range_set));
+            debug_assert!(ret.is_none());
+            inc_range
+        };
         (!inc_ranges.is_empty())
             .then(|| {
                 let inc_size: usize = inc_ranges.iter().map(std::ops::Range::len).sum();
-                queue.push(block_id, new_range);
                 self.cur_size.set(self.cur_size.get() + inc_size);
                 (self.cur_size.get() > self.max_size).then(|| {
                     // evict
@@ -124,16 +135,31 @@ impl EvictStrategySlice for MostModifiedEvict {
             .flatten()
     }
 
-    /// Pop a block with its corresponding ranges.
+    /// Pop the first block with its corresponding ranges according to the evict strategy.
     ///
     /// # Return
     /// - [`Some`] a block with its corresponding ranges popped by a specific eviction strategy
     /// - [`None`] if empty
-    fn pop(&self) -> Option<(crate::storage::BlockId, super::RangeSet)> {
+    fn pop_first(&self) -> Option<(crate::storage::BlockId, super::RangeSet)> {
         self.queue.borrow_mut().pop().map(|(block_id, ranges)| {
             self.cur_size.set(self.cur_size.get() - ranges.0.len());
             (block_id, ranges.0)
         })
+    }
+
+    /// Pop the block with its corresponding ranges by `block_id`
+    ///
+    /// # Return
+    /// -[`Some`] ranges previously pushed if the block exits
+    /// -[`None`] if the block does not exit
+    fn pop_with_id(&self, block_id: BlockId) -> Option<RangeSet> {
+        self.queue
+            .borrow_mut()
+            .remove(&block_id)
+            .map(|(_, ranges)| {
+                self.cur_size.set(self.cur_size.get() - ranges.0.len());
+                ranges.0
+            })
     }
 }
 
@@ -141,16 +167,19 @@ impl EvictStrategySlice for MostModifiedEvict {
 mod test {
     use std::num::NonZeroUsize;
 
-    use crate::storage::evict::{most_modified::MostModifiedEvict, EvictStrategySlice};
+    use crate::storage::evict::{most_modified_block::MostModifiedBlockEvict, EvictStrategySlice};
 
     #[test]
     fn test_evict() {
         const MAX_SIZE: usize = 40;
-        let mm = MostModifiedEvict::with_max_size(NonZeroUsize::new(MAX_SIZE).unwrap());
+        let mm = MostModifiedBlockEvict::with_max_size(NonZeroUsize::new(MAX_SIZE).unwrap());
         assert!(mm.push(1, 5..20).is_none()); // [1: 5..20]
         assert!(mm.push(1, 0..10).is_none()); // [1: 0..20]
         assert_eq!(mm.cur_size.get(), 20);
         assert!(mm.push(2, 20..30).is_none()); // [1: 0..20], [2: 20..30]
+        assert!(mm.push(3, 30..40).is_none()); // [1: 0..20], [2: 20..30] [3: 30..40]
+        let evict = mm.pop_with_id(3).unwrap();
+        assert_eq!(evict.to_ranges(), vec![30..40]);
         let evict = mm.push(2, 50..70).unwrap(); // [1: 0..20]
         assert_eq!(evict.0, 2);
         assert_eq!(evict.1.to_ranges(), vec![20..30, 50..70]);
@@ -159,9 +188,9 @@ mod test {
         assert_eq!(evict.0, 1);
         assert_eq!(evict.1.to_ranges(), vec![0..30]);
         assert!(mm.push(3, 30..50).is_none()); // [3: 0..20, 30..50]
-        let evict = mm.push(3, 25..26).unwrap(); // empty
+        let evict = mm.pop_first().unwrap(); // empty
         assert_eq!(evict.0, 3);
-        assert_eq!(evict.1.to_ranges(), vec![0..20, 25..26, 30..50]);
-        assert!(mm.pop().is_none());
+        assert_eq!(evict.1.to_ranges(), vec![0..20, 30..50]);
+        assert!(mm.pop_first().is_none());
     }
 }

@@ -7,13 +7,26 @@ mod ssd_storage;
 mod utility;
 
 pub use evict::EvictStrategySlice;
-pub use evict::MostModifiedEvict;
+pub use evict::MostModifiedBlockEvict;
+pub use evict::MostModifiedStripeEvict;
 pub use hdd_storage::HDDStorage;
 pub use slice_buffer::FixedSizeSliceBuf;
 pub use ssd_storage::SSDStorage;
 
 pub type BlockId = usize;
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct StripeId(usize); // use new type pattern to avoid confusion with BlockId
+impl From<usize> for StripeId {
+    fn from(value: usize) -> Self {
+        StripeId(value)
+    }
+}
+impl StripeId {
+    pub fn into_inner(self) -> usize {
+        self.0
+    }
+}
 use utility::*;
 
 pub trait BlockStorage {
@@ -145,6 +158,11 @@ pub trait SliceBuffer {
     ) -> SUResult<Option<BufferEviction>>;
 
     fn pop(&self) -> Option<BufferEviction>;
+    fn pop_one(&self, block_id: BlockId) -> Option<BufferEviction>;
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 #[derive(Debug, Clone)]

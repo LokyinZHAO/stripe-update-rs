@@ -38,7 +38,11 @@
                     "kind": "bin"
                 }
             },
-            "args": [],
+            "args": [
+                "benchmark",
+                "-m=baseline",
+                "-c=./run_config.toml"
+            ],
             "cwd": "${workspaceFolder}"
         },
         {

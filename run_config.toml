@@ -5,6 +5,6 @@ BlockNum = 2052
 SsdDevPath = "./data/ssd_dev"
 HddDevPath = "./data/hdd_dev"
 SsdBlockCapacity = 960
-TestNum = 1572864
+TestNum = 800_000
 SliceSize = "4KiB"
 OutDirPath = "./out/"

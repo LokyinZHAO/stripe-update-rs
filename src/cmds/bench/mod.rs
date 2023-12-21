@@ -1,15 +1,18 @@
 use std::path::{Path, PathBuf};
 
-use crate::SUResult;
+use crate::{storage::BlockId, SUResult};
 
 mod baseline;
 mod dryrun;
+mod merge_stripe;
 
 #[derive(Debug, Default, serde::Deserialize, Clone, clap::ValueEnum)]
 pub enum Manner {
     /// No optimization, ssd fetches and updates in block unit.
     #[default]
     Baseline,
+    /// Merge the updates of a stripe
+    MergeStripe,
     /// No disk write/read is performed, only generate and report disk access trace.
     TraceDryRun,
 }
@@ -18,6 +21,7 @@ impl std::fmt::Display for Manner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Manner::Baseline => f.write_str("baseline"),
+            Manner::MergeStripe => f.write_str("merge_stripe"),
             Manner::TraceDryRun => f.write_str("trace_dryrun"),
         }
     }
@@ -95,6 +99,7 @@ impl Bench {
     pub fn run(&self) -> SUResult<()> {
         match self.manner {
             Manner::Baseline => self.baseline(),
+            Manner::MergeStripe => self.merge_stripe(),
             Manner::TraceDryRun => self.dryrun(),
         }
     }
@@ -106,4 +111,10 @@ fn dev_display(dev: &Path) -> String {
         display += format!(" -> {}", std::fs::read_link(dev).unwrap().display()).as_str();
     }
     display
+}
+
+struct UpdateRequest {
+    slice_data: Vec<u8>,
+    block_id: BlockId,
+    offset: usize,
 }

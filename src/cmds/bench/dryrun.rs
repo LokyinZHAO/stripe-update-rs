@@ -3,7 +3,7 @@ use std::{io::Write, num::NonZeroUsize, path::PathBuf};
 use indicatif::ProgressIterator;
 use rand::Rng;
 
-use crate::{storage::MostModifiedEvict, SUResult};
+use crate::{storage::MostModifiedBlockEvict, SUResult};
 
 use super::Bench;
 
@@ -27,8 +27,8 @@ fn draw_plot(
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     use plotters::prelude::*;
     // plot config
-    const X_DES: &str = "Proportion of updated portion of evicted blocks";
-    const Y_DES: &str = "# evicted blocks less or equal to the proportion";
+    const X_DES: &str = "Proportion of updated portion of evicted blocks (%)";
+    const Y_DES: &str = "Accumulative # evicted blocks";
     assert!(stats.len() == 101);
     let path = {
         let mut path = out_path.to_owned();
@@ -96,7 +96,7 @@ impl Bench {
         println!("output directory path: {}", out_dir_path.display());
 
         print!("dry run trace...");
-        let mm_evict = MostModifiedEvict::with_max_size(
+        let mm_evict = MostModifiedBlockEvict::with_max_size(
             NonZeroUsize::new(ssd_cap * block_size).expect("capacity is set to zero"),
         );
         let mut evictions = (0..test_num)

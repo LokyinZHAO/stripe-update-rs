@@ -3,11 +3,13 @@ use std::ops::Range;
 use super::BlockId;
 
 mod lru_evict;
-mod most_modified;
+mod most_modified_block;
+mod most_modified_stripe;
 mod range_set;
 
 pub use lru_evict::LruEvict;
-pub use most_modified::MostModifiedEvict;
+pub use most_modified_block::MostModifiedBlockEvict;
+pub use most_modified_stripe::MostModifiedStripeEvict;
 pub use range_set::RangeSet;
 
 pub trait EvictStrategy {
@@ -22,7 +24,7 @@ pub trait EvictStrategy {
     fn pop(&self) -> Option<Self::Item>;
 }
 
-pub trait EvictStrategySlice {
+pub trait EvictStrategySlice: std::fmt::Debug {
     /// Return `true` if the evict contains a block, otherwise `false`.
     fn contains(&self, block_id: BlockId) -> bool;
     /// Return the current size of the slices stored.
@@ -52,10 +54,17 @@ pub trait EvictStrategySlice {
     /// - [`Some`] if a block with its range was evicted.
     /// - [`None`] if no eviction happens
     fn push(&self, block_id: BlockId, range: Range<usize>) -> Option<(BlockId, RangeSet)>;
-    /// Pop a block with its corresponding ranges.
+    /// Pop the first block with its corresponding ranges according to the evict strategy.
     ///
     /// # Return
     /// - [`Some`] a block with its corresponding ranges popped by a specific eviction strategy
     /// - [`None`] if empty
-    fn pop(&self) -> Option<(BlockId, RangeSet)>;
+    fn pop_first(&self) -> Option<(BlockId, RangeSet)>;
+
+    /// Pop the block with its corresponding ranges by `block_id`
+    ///
+    /// # Return
+    /// -[`Some`] ranges previously pushed if the block exits
+    /// -[`None`] if the block does not exit
+    fn pop_with_id(&self, block_id: BlockId) -> Option<RangeSet>;
 }

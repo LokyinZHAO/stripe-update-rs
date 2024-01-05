@@ -3,7 +3,10 @@ use std::{io::Write, num::NonZeroUsize, path::PathBuf};
 use indicatif::ProgressIterator;
 use rand::Rng;
 
-use crate::{storage::MostModifiedBlockEvict, SUResult};
+use crate::{
+    storage::{EvictStrategySlice, MostModifiedStripeEvict},
+    SUResult,
+};
 
 use super::Bench;
 
@@ -24,6 +27,7 @@ fn draw_plot(
     stats: &[usize],
     total: usize,
     out_path: &std::path::Path,
+    test_load: usize,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     use plotters::prelude::*;
     // plot config
@@ -39,8 +43,8 @@ fn draw_plot(
     root.fill(&WHITE)?;
     let mut chart = ChartBuilder::on(&root)
         .caption(
-            "updated proportion of evicted blocks",
-            (FontFamily::SansSerif, 20).into_font(),
+            format!("updated proportion of evicted blocks (test load: {test_load})"),
+            (FontFamily::SansSerif, 16).into_font(),
         )
         .margin(10)
         .x_label_area_size(30)
@@ -83,8 +87,7 @@ impl Bench {
         let out_dir_path = self.out_dir_path.to_owned().expect("out dir path not set");
         let ssd_cap_size = ssd_cap * block_size;
         if test_num * slice_size < ssd_cap_size {
-            println!("test load is too small to fulfill the ssd capacity");
-            return Ok(());
+            println!("warning: test load is too small to fulfill the ssd capacity");
         }
 
         println!("(k, p): ({k}, {p})");
@@ -96,9 +99,11 @@ impl Bench {
         println!("output directory path: {}", out_dir_path.display());
 
         print!("dry run trace...");
-        let mm_evict = MostModifiedBlockEvict::with_max_size(
+        let mm_evict = MostModifiedStripeEvict::new(
+            NonZeroUsize::new(m).unwrap(),
             NonZeroUsize::new(ssd_cap * block_size).expect("capacity is set to zero"),
         );
+        let mut ssd_hit_cnt: usize = 0;
         let mut evictions = (0..test_num)
             .progress()
             .with_style(crate::cmds::progress_style_template(Some(
@@ -109,11 +114,16 @@ impl Bench {
                 let block_id = { (0..).map(|_| rand::thread_rng().gen_range(0..block_num)) }
                     .find(|id| (0..k).contains(&(*id % m)))
                     .unwrap();
-                use crate::storage::EvictStrategySlice;
+                if mm_evict.contains(block_id) {
+                    ssd_hit_cnt += 1;
+                }
                 mm_evict.push(block_id, offset..(offset + slice_size))
             })
             .map(|(_, ranges)| ranges.len())
             .collect::<Vec<_>>();
+        while let Some((_block_id, range)) = mm_evict.pop_first() {
+            evictions.push(range.len());
+        }
         let evicted_num = evictions.len();
         evictions.sort();
         assert!(evictions.iter().all(|&size| size <= block_size));
@@ -138,6 +148,10 @@ impl Bench {
             .sum::<usize>()
             / evicted_num;
         println!("average fill: {average_fill}");
+        println!(
+            "ssd hit: {ssd_hit_cnt}/{test_num} ({}%)",
+            ssd_hit_cnt * 100 / test_num
+        );
         let mut acc: usize = 0;
         let accumulate_stat = stats
             .iter()
@@ -149,7 +163,7 @@ impl Bench {
         print!("drawing plot...");
         std::io::stdout().flush().unwrap();
 
-        match draw_plot(&accumulate_stat, evicted_num, &out_dir_path) {
+        match draw_plot(&accumulate_stat, evicted_num, &out_dir_path, test_num) {
             Ok(path) => {
                 println!("done, plot path: {}", path.display());
             }

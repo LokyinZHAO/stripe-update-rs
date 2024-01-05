@@ -8,7 +8,8 @@ use bytes::BytesMut;
 use indicatif::ProgressIterator;
 
 use crate::{
-    bench::{dev_display, UpdateRequest},
+    bench::UpdateRequest,
+    cmds::dev_display,
     erasure_code::{Block, ErasureCode, PartialStripe, ReedSolomon},
     storage::{
         BlockId, BlockStorage, BufferEviction, FixedSizeSliceBuf, HDDStorage, PartialBlock,

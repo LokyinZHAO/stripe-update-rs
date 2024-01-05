@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::{storage::BlockId, SUResult};
 
@@ -103,14 +103,6 @@ impl Bench {
             Manner::TraceDryRun => self.dryrun(),
         }
     }
-}
-
-fn dev_display(dev: &Path) -> String {
-    let mut display = dev.display().to_string();
-    if dev.is_symlink() {
-        display += format!(" -> {}", std::fs::read_link(dev).unwrap().display()).as_str();
-    }
-    display
 }
 
 struct UpdateRequest {

@@ -10,7 +10,8 @@ use indicatif::ProgressIterator;
 use range_collections::{RangeSet, RangeSet2};
 
 use crate::{
-    bench::{dev_display, UpdateRequest},
+    bench::UpdateRequest,
+    cmds::dev_display,
     erasure_code::{Block, ErasureCode, PartialStripe, ReedSolomon, Stripe},
     storage::{
         BlockId, BufferEviction, EvictStrategySlice, FixedSizeSliceBuf, HDDStorage,

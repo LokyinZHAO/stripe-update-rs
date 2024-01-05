@@ -4,7 +4,7 @@ fn main() {
     match args.cmd {
         Commands::BuildData { config, purge } => build_data(&config, purge),
         Commands::Benchmark { config, manner } => benchmark(&config, manner),
-        Commands::Clean { config } => todo!(),
+        Commands::Clean { config, ssd, hdd } => cleanup(&config, ssd, hdd),
     };
 }
 
@@ -21,7 +21,7 @@ fn build_data(config_path: &std::path::Path, purge: bool) {
         .ssd_block_capacity(config::ssd_block_capacity())
         .k_p(config::ec_k(), config::ec_p())
         .build()
-        .unwrap();
+        .unwrap_or_else(|e| panic!("fail to benchmark, {e}"));
 }
 
 fn benchmark(config_path: &std::path::Path, manner: Manner) {
@@ -40,7 +40,23 @@ fn benchmark(config_path: &std::path::Path, manner: Manner) {
         .out_dir_path(config::out_dir_path())
         .manner(manner)
         .run()
-        .unwrap();
+        .unwrap_or_else(|e| panic!("fail to benchmark, {e}"));
+}
+
+fn cleanup(config_path: &std::path::Path, ssd: bool, hdd: bool) {
+    use stripe_update::config;
+    stripe_update::config::init_config_toml(config_path);
+    stripe_update::config::validate_config();
+    let mut cleaner = stripe_update::clean::Cleaner::new();
+    if ssd {
+        cleaner.ssd_dev_path(config::ssd_dev_path());
+    }
+    if hdd {
+        cleaner.hdd_dev_path(config::hdd_dev_path());
+    }
+    cleaner
+        .run()
+        .unwrap_or_else(|e| panic!("fail to benchmark, {e}"));
 }
 
 use clap::Subcommand;
@@ -81,5 +97,9 @@ enum Commands {
         /// configuration file in toml format
         #[arg(short, long)]
         config: std::path::PathBuf,
+        #[arg(short, long, default_value_t = false)]
+        ssd: bool,
+        #[arg(short, long, default_value_t = false)]
+        hdd: bool,
     },
 }

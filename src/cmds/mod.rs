@@ -14,3 +14,11 @@ fn progress_style_template(msg: Option<&str>) -> indicatif::ProgressStyle {
         .unwrap(),
     }
 }
+
+fn dev_display(dev: &std::path::Path) -> String {
+    let mut display = dev.display().to_string();
+    if dev.is_symlink() {
+        display += format!(" -> {}", std::fs::read_link(dev).unwrap().display()).as_str();
+    }
+    display
+}

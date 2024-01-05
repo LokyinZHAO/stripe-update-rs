@@ -1,4 +1,5 @@
 pub use cmds::bench;
+pub use cmds::clean;
 pub use cmds::data_builder;
 pub mod config;
 pub mod erasure_code;

@@ -1,10 +1,10 @@
 EcK = 4
 EcP = 2
 BlockSize = "1MiB"
-BlockNum = 2052
+BlockNum = 20484
 SsdDevPath = "./data/ssd_dev"
 HddDevPath = "./data/hdd_dev"
-SsdBlockCapacity = 960
-TestNum = 800_000
+SsdBlockCapacity = 9600
+TestNum = 8_000_000
 SliceSize = "4KiB"
 OutDirPath = "./out/"

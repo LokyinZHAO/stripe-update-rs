@@ -5,6 +5,7 @@ fn main() {
         Commands::BuildData { config, purge } => build_data(&config, purge),
         Commands::Benchmark { config, manner } => benchmark(&config, manner),
         Commands::Clean { config, ssd, hdd } => cleanup(&config, ssd, hdd),
+        Commands::Hitchhiker { config, dev } => hitchhiker(&config, &dev),
     };
 }
 
@@ -59,6 +60,20 @@ fn cleanup(config_path: &std::path::Path, ssd: bool, hdd: bool) {
         .unwrap_or_else(|e| panic!("fail to benchmark, {e}"));
 }
 
+fn hitchhiker(config_path: &std::path::Path, _dev_map: &std::path::Path) {
+    use stripe_update::config;
+    stripe_update::config::init_config_toml(config_path);
+    stripe_update::config::validate_config();
+    stripe_update::hitchhiker_bench::HitchhikerBench::new()
+        .block_num(config::block_num())
+        .block_size(config::block_size())
+        .test_load(config::test_load())
+        .k_p(config::ec_k(), config::ec_p())
+        .out_dir_path(config::out_dir_path())
+        .run()
+        .unwrap_or_else(|e| panic!("fail to benchmark, {e}"));
+}
+
 use clap::Subcommand;
 use stripe_update::bench::Manner;
 
@@ -90,6 +105,16 @@ enum Commands {
         /// bench mark manners
         #[arg(short, long, default_value_t = Manner::Baseline)]
         manner: Manner,
+    },
+    /// Hitchhiker run
+    #[command(arg_required_else_help = true)]
+    Hitchhiker {
+        /// configuration file in toml format
+        #[arg(short, long)]
+        config: std::path::PathBuf,
+        /// device path map file
+        #[arg(short, long)]
+        dev: std::path::PathBuf,
     },
     /// Clean up the dev directory
     #[command(arg_required_else_help = true)]

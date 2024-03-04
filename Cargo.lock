@@ -368,6 +368,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "either"
+version = "1.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11157ac094ffbdde99aa67b23417ebdd801842852b500e395a45a9c0aac03e4a"
+
+[[package]]
 name = "encode_unicode"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -626,6 +632,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e52265d51a82d43521c34043239dba8991f428969fdf5d22d8a023a189767f9"
 dependencies = [
  "libisal-sys",
+]
+
+[[package]]
+name = "itertools"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
+dependencies = [
+ "either",
 ]
 
 [[package]]
@@ -1082,6 +1097,7 @@ dependencies = [
  "hex",
  "indicatif",
  "isa-l",
+ "itertools",
  "lru",
  "plotters",
  "priority-queue",

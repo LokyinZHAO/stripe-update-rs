@@ -248,6 +248,11 @@ impl PartialStripe {
         self.stripe.iter().all(Option::is_none)
     }
 
+    /// Return the number of absent blocks.
+    pub fn absent_num(&self) -> usize {
+        self.stripe.iter().filter(|opt| opt.is_none()).count()
+    }
+
     /// Set a block, and return the old value.
     ///
     /// # Parameters
@@ -267,6 +272,11 @@ impl PartialStripe {
                 .unwrap_or_else(|| panic!("block index({block_idx}) is greater than m({})", m)),
             block,
         )
+    }
+
+    /// Get a block, which may be present(Some) or absent(None).
+    pub fn get(&self, block_idx: usize) -> Option<&Block> {
+        self.stripe[block_idx].as_ref()
     }
 
     /// Make a [`PartialStripe`] with `k` source blocks and `p` parity blocks.

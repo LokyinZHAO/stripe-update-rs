@@ -1,8 +1,10 @@
 mod block;
+mod hitchhiker;
 mod reed_solomon;
 mod stripe;
 
 pub use block::Block;
+pub use hitchhiker::{HitchhikerCode, HitchhikerXor};
 pub use reed_solomon::ReedSolomon;
 pub use stripe::PartialStripe;
 pub use stripe::Stripe;

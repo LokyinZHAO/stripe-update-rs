@@ -1,6 +1,7 @@
 pub use cmds::bench;
 pub use cmds::clean;
 pub use cmds::data_builder;
+pub use cmds::hitchhiker_bench;
 pub mod config;
 pub mod erasure_code;
 pub mod storage;

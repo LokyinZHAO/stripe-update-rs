@@ -73,7 +73,6 @@ impl HitchhikerCode for HitchhikerXor {
             .first_mut()
             .expect("a hitchhiker stripe should have at least two sub-stripes");
         // do xor
-        use itertools::Itertools;
         let xor_group_num = self.p() - 1;
         let block_num_in_xor_group =
             self.k() / xor_group_num + if self.k() % xor_group_num == 0 { 0 } else { 1 };
@@ -104,7 +103,7 @@ impl HitchhikerCode for HitchhikerXor {
     ///
     /// # Error
     /// - If the number of absent blocks are greater than the number of parity blocks.
-    fn decode(&self, partial_stripe: &mut [erasure_code::PartialStripe]) -> SUResult<()> {
+    fn decode(&self, _partial_stripe: &mut [erasure_code::PartialStripe]) -> SUResult<()> {
         // // split two sub-stripes
         // let (a, b) = partial_stripe
         //     .split_first_mut()

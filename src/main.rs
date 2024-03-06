@@ -60,19 +60,28 @@ fn cleanup(config_path: &std::path::Path, ssd: bool, hdd: bool) {
         .unwrap_or_else(|e| panic!("fail to benchmark, {e}"));
 }
 
-fn hitchhiker(config_path: &std::path::Path, _dev_map: &std::path::Path) {
+fn hitchhiker(config_path: &std::path::Path, dev_map: &std::path::Path) {
     use stripe_update::config;
     stripe_update::config::init_config_toml(config_path);
     stripe_update::config::validate_config();
+    let dev = std::io::BufReader::new(std::fs::File::open(dev_map).unwrap())
+        .lines()
+        .into_iter()
+        .map(Result::unwrap)
+        .map(|line| std::path::PathBuf::from(line))
+        .collect::<Vec<_>>();
     stripe_update::hitchhiker_bench::HitchhikerBench::new()
         .block_num(config::block_num())
         .block_size(config::block_size())
+        .dev_path(dev)
         .test_load(config::test_load())
         .k_p(config::ec_k(), config::ec_p())
         .out_dir_path(config::out_dir_path())
         .run()
         .unwrap_or_else(|e| panic!("fail to benchmark, {e}"));
 }
+
+use std::io::BufRead;
 
 use clap::Subcommand;
 use stripe_update::bench::Manner;

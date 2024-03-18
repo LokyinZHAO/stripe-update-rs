@@ -8,8 +8,8 @@ use bytes::BytesMut;
 use indicatif::ProgressIterator;
 
 use crate::{
-    bench::UpdateRequest,
     erasure_code::{Block, ErasureCode, PartialStripe, ReedSolomon},
+    standalone_cmds::bench::UpdateRequest,
     standalone_cmds::dev_display,
     storage::{
         BlockId, BlockStorage, BufferEviction, FixedSizeSliceBuf, HDDStorage, PartialBlock,
@@ -374,8 +374,8 @@ mod test {
     use bytes::BytesMut;
 
     use crate::{
-        bench::{baseline::do_update, UpdateRequest},
         erasure_code::{Block, ErasureCode, ReedSolomon, Stripe},
+        standalone_cmds::bench::{baseline::do_update, UpdateRequest},
         storage::{
             BlockId, BlockStorage, BufferEviction, FixedSizeSliceBuf, HDDStorage, PartialBlock,
             SliceBuffer, SliceOpt,
@@ -397,7 +397,7 @@ mod test {
     fn test_do_update() {
         let ssd_dev = tempfile::tempdir().unwrap();
         let hdd_dev = tempfile::tempdir().unwrap();
-        crate::data_builder::DataBuilder::new()
+        crate::standalone_cmds::data_builder::DataBuilder::new()
             .block_num(BLOCK_NUM)
             .block_size(BLOCK_SIZE)
             .hdd_dev_path(hdd_dev.path())

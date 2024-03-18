@@ -2,5 +2,8 @@
     "cSpell.words": [
         "dryrun",
         "uncategorized"
+    ],
+    "rust-analyzer.linkedProjects": [
+        "./Cargo.toml"
     ]
 }

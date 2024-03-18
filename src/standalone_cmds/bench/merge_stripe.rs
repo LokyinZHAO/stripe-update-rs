@@ -11,8 +11,8 @@ use range_collections::{RangeSet, RangeSet2};
 
 use crate::{
     bench::UpdateRequest,
-    cmds::dev_display,
     erasure_code::{Block, ErasureCode, PartialStripe, ReedSolomon, Stripe},
+    standalone_cmds::dev_display,
     storage::{
         BlockId, BufferEviction, EvictStrategySlice, FixedSizeSliceBuf, HDDStorage,
         MostModifiedStripeEvict, PartialBlock, SliceBuffer, SliceOpt, SliceStorage, StripeId,
@@ -287,9 +287,10 @@ impl Bench {
             (duration, cnt)
         });
 
+        // ack: show progress
         std::thread::spawn(move || {
             (0..test_load)
-                .progress_with_style(crate::cmds::progress_style_template(Some(
+                .progress_with_style(crate::standalone_cmds::progress_style_template(Some(
                     "benchmark baseline...",
                 )))
                 .for_each(|_| {
@@ -297,7 +298,7 @@ impl Bench {
                 });
             std::io::stdout().flush().unwrap();
             let bar = indicatif::ProgressBar::new(ssd_cap.try_into().unwrap());
-            bar.set_style(crate::cmds::progress_style_template(Some(
+            bar.set_style(crate::standalone_cmds::progress_style_template(Some(
                 "clean up updates buffered in ssd...",
             )));
             while let Ok(_ack) = ack_consumer.recv() {

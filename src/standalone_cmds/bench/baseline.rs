@@ -9,8 +9,8 @@ use indicatif::ProgressIterator;
 
 use crate::{
     bench::UpdateRequest,
-    cmds::dev_display,
     erasure_code::{Block, ErasureCode, PartialStripe, ReedSolomon},
+    standalone_cmds::dev_display,
     storage::{
         BlockId, BlockStorage, BufferEviction, FixedSizeSliceBuf, HDDStorage, PartialBlock,
         SSDStorage, SliceBuffer, SliceOpt, SliceStorage,
@@ -205,7 +205,7 @@ impl Bench {
 
         std::thread::spawn(move || {
             (0..test_load)
-                .progress_with_style(crate::cmds::progress_style_template(Some(
+                .progress_with_style(crate::standalone_cmds::progress_style_template(Some(
                     "benchmark baseline...",
                 )))
                 .for_each(|_| {
@@ -213,7 +213,7 @@ impl Bench {
                 });
             std::io::stdout().flush().unwrap();
             let bar = indicatif::ProgressBar::new(ssd_cap.try_into().unwrap());
-            bar.set_style(crate::cmds::progress_style_template(Some(
+            bar.set_style(crate::standalone_cmds::progress_style_template(Some(
                 "clean up updates buffered in ssd...",
             )));
             while let Ok(_ack) = ack_consumer.recv() {

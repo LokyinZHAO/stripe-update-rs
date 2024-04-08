@@ -13,6 +13,7 @@ pub enum SUError {
 }
 
 impl SUError {
+    #[allow(dead_code)]
     pub(crate) fn invalid_arg(e: impl ToString) -> Self {
         Self::InvalidArg(e.to_string())
     }

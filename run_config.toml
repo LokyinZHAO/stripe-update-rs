@@ -2,9 +2,23 @@ EcK = 4
 EcP = 2
 BlockSize = "1MiB"
 BlockNum = 20484
-SsdDevPath = "./data/ssd_dev"
-HddDevPath = "./data/hdd_dev"
 SsdBlockCapacity = 9600
 TestNum = 8_000_000
 SliceSize = "4KiB"
 OutDirPath = "./out/"
+
+[StandAlone]
+SsdDevPath = "./data/cluster/ssd_dev"
+HddDevPath = "./data/cluster/hdd_dev"
+
+[Cluster]
+RedisUrl = "redis://127.0.0.1"
+WorkerNum = 6
+Workers = [
+    { SsdDevPath = "./data/cluster/worker-1/ssd_dev", HddDevPath = "./data/cluster/worker-1/hdd_dev" },
+    { SsdDevPath = "./data/cluster/worker-2/ssd_dev", HddDevPath = "./data/cluster/worker-2/hdd_dev" },
+    { SsdDevPath = "./data/cluster/worker-3/ssd_dev", HddDevPath = "./data/cluster/worker-3/hdd_dev" },
+    { SsdDevPath = "./data/cluster/worker-4/ssd_dev", HddDevPath = "./data/cluster/worker-4/hdd_dev" },
+    { SsdDevPath = "./data/cluster/worker-5/ssd_dev", HddDevPath = "./data/cluster/worker-5/hdd_dev" },
+    { SsdDevPath = "./data/cluster/worker-6/ssd_dev", HddDevPath = "./data/cluster/worker-6/hdd_dev" },
+]

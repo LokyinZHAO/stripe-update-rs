@@ -1,4 +1,4 @@
-use std::{io::Read, sync::OnceLock};
+use std::{io::Read, num::NonZeroUsize, sync::OnceLock};
 
 use bytesize::ByteSize;
 
@@ -10,11 +10,33 @@ struct Config {
     block_size: ByteSize,
     block_num: usize,
     ssd_block_capacity: usize,
-    ssd_dev_path: std::path::PathBuf,
-    hdd_dev_path: std::path::PathBuf,
     out_dir_path: std::path::PathBuf,
     test_num: usize,
     slice_size: ByteSize,
+    standalone: Option<StandaloneConfig>,
+    cluster: Option<ClusterConfig>,
+}
+
+#[derive(serde::Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+struct StandaloneConfig {
+    ssd_dev_path: std::path::PathBuf,
+    hdd_dev_path: std::path::PathBuf,
+}
+
+#[derive(serde::Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+struct ClusterConfig {
+    redis_url: String,
+    worker_num: NonZeroUsize,
+    workers: Vec<WorkerConfig>,
+}
+
+#[derive(serde::Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+struct WorkerConfig {
+    ssd_dev_path: std::path::PathBuf,
+    hdd_dev_path: std::path::PathBuf,
 }
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
@@ -34,9 +56,35 @@ pub fn init_config_toml(config_file: &std::path::Path) {
         .expect("initialize config more than once");
 }
 
-/// Validate the configuration, and panic if any configuration is illegal.
+/// Validate the general configuration, and panic if any configuration is illegal.
+///
+/// To validate the standalone configuration, use `validate_standalone_config`.
+/// To validate the cluster configuration, use `validate_cluster_config`.
 pub fn validate_config() {
     let config = CONFIG.get().expect("config not initialized");
+    if !config.out_dir_path.is_dir() {
+        panic!(
+            "output path {} is not a directory",
+            config.out_dir_path.display()
+        );
+    }
+    if config.slice_size > config.block_size {
+        panic!(
+            "slice size {} is greater than block size {}",
+            config.slice_size, config.block_size
+        );
+    }
+}
+
+/// Validate the standalone configuration, and panic if any configuration is illegal.
+///
+/// This function must be called after `validate_config`.
+pub fn validate_standalone_config() {
+    let config = CONFIG.get().expect("config not initialized");
+    let config = config
+        .standalone
+        .as_ref()
+        .expect("standalone config not set");
     if !config.hdd_dev_path.is_dir() {
         panic!(
             "hdd dev path {} is not a directory",
@@ -49,17 +97,42 @@ pub fn validate_config() {
             config.ssd_dev_path.display()
         );
     }
-    if !config.out_dir_path.is_dir() {
-        panic!(
-            "output path {} is not a directory",
-            config.out_dir_path.display()
-        );
+}
+
+/// Validate the cluster configuration, and panic if any configuration is illegal
+///
+/// This function must be called after `validate_config`.
+///
+/// # Arguments
+/// - worker_id: the worker id to validate, and `None` stands for coordinator
+pub fn validate_cluster_config(worker_id: Option<usize>) {
+    let config = CONFIG.get().expect("config not initialized");
+    let cluster = config.cluster.as_ref().expect("cluster config not set");
+    if cluster.worker_num.get() < 1 {
+        panic!("worker num must be greater than 0");
     }
-    if config.slice_size > config.block_size {
-        panic!(
-            "slice size {} is greater than block size {}",
-            config.slice_size, config.block_size
-        );
+    if cluster.worker_num.get() != cluster.workers.len() {
+        panic!("worker num must be equal to the number of worker dev path");
+    }
+    if let Some(worker_id) = worker_id {
+        if worker_id == 0 || worker_id > cluster.worker_num.get() {
+            panic!("worker id ranges from 0 to {}", cluster.worker_num.get());
+        }
+        let worker = &cluster.workers[worker_id - 1];
+        if !worker.ssd_dev_path.is_dir() {
+            panic!(
+                "worker {} ssd dev path {} is not a directory",
+                worker_id,
+                worker.ssd_dev_path.display()
+            );
+        }
+        if !worker.hdd_dev_path.is_dir() {
+            panic!(
+                "worker {} hdd dev path {} is not a directory",
+                worker_id,
+                worker.hdd_dev_path.display()
+            );
+        }
     }
 }
 
@@ -85,12 +158,22 @@ pub fn ec_m() -> usize {
 
 /// Get path to the hdd device, expected to be a directory
 pub fn hdd_dev_path() -> std::path::PathBuf {
-    get_config().hdd_dev_path.clone()
+    get_config()
+        .standalone
+        .as_ref()
+        .expect("standalone config not set")
+        .hdd_dev_path
+        .clone()
 }
 
 /// Get path to the ssd device, expected to be a directory
 pub fn ssd_dev_path() -> std::path::PathBuf {
-    get_config().ssd_dev_path.clone()
+    get_config()
+        .standalone
+        .as_ref()
+        .expect("standalone config not set")
+        .ssd_dev_path
+        .clone()
 }
 
 /// Get path to the output directory
@@ -121,4 +204,26 @@ pub fn test_load() -> usize {
 /// Get the size of a update slice
 pub fn slice_size() -> usize {
     get_config().slice_size.as_u64().try_into().unwrap()
+}
+
+pub fn redis_url() -> Option<String> {
+    get_config().cluster.as_ref().map(|c| c.redis_url.clone())
+}
+
+pub fn worker_num() -> Option<usize> {
+    get_config().cluster.as_ref().map(|c| c.worker_num.get())
+}
+
+pub fn worker_ssd_dev_path(worker_id: usize) -> Option<std::path::PathBuf> {
+    get_config()
+        .cluster
+        .as_ref()
+        .and_then(|c| c.workers.get(worker_id - 1).map(|w| w.ssd_dev_path.clone()))
+}
+
+pub fn worker_hdd_dev_path(worker_id: usize) -> Option<std::path::PathBuf> {
+    get_config()
+        .cluster
+        .as_ref()
+        .and_then(|c| c.workers.get(worker_id - 1).map(|w| w.hdd_dev_path.clone()))
 }

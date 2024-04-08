@@ -8,6 +8,8 @@ pub enum SUError {
     Range(String),
     #[error("[kind: erasure code, info:{0}]")]
     ErasureCode(String),
+    #[error("[kind: redis, info:{0}]")]
+    Communication(#[from] redis::RedisError),
     #[error("[kind: other, info: {0}]")]
     Other(String),
 }

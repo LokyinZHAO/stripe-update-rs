@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{standalone_cmds::dev_display, SUResult};
+use crate::{standalone::dev_display, SUResult};
 
 #[derive(Debug, Default)]
 pub struct Cleaner {

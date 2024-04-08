@@ -59,6 +59,11 @@ impl Stripe {
         }
     }
 
+    /// Convert this stripe to blocks
+    pub fn into_blocks(self) -> Vec<Block> {
+        self.stripe
+    }
+
     /// Make a stripe with `k` source blocks and `p` parity blocks,
     /// and the payload of all the blocks are filled with `0`.
     pub fn zero(k: NonZeroUsize, p: NonZeroUsize, block_size: NonZeroUsize) -> Self {

@@ -6,23 +6,70 @@ use itertools::zip_eq;
 use crate::{
     cluster::{
         messages::{CoordinatorRequest, WorkerResponse},
-        progress_style_template, WorkerID,
+        progress_style_template, MessageQueueKey, WorkerID,
     },
     erasure_code::{ErasureCode, ReedSolomon, Stripe},
     SUError, SUResult,
 };
 
-use super::Coordinator;
+pub struct BuildData {
+    recv_conn: redis::Connection,
+    send_conn: redis::Connection,
+    request_queue_list: Vec<MessageQueueKey>,
+    response_queue: MessageQueueKey,
+    block_size: usize,
+    block_num: usize,
+    k_p: (usize, usize),
+}
 
-impl Coordinator {
-    pub fn build_data(self) -> SUResult<()> {
+impl TryFrom<super::CoordinatorBuilder> for BuildData {
+    type Error = SUError;
+
+    fn try_from(value: super::CoordinatorBuilder) -> Result<Self, Self::Error> {
+        let redis_url = value
+            .redis_url
+            .ok_or_else(|| SUError::Other("redis url not set".into()))?;
+        let worker_num = value
+            .worker_num
+            .ok_or_else(|| SUError::Other("worker number not set".into()))?;
+        let block_size = value
+            .block_size
+            .ok_or_else(|| SUError::Other("block size not set".into()))?;
+        let block_num = value
+            .block_num
+            .ok_or_else(|| SUError::Other("block number not set".into()))?;
+        let k_p = value
+            .k_p
+            .ok_or_else(|| SUError::Other("k and p not set".into()))?;
+        let client = redis::Client::open(redis_url)?;
+        let request_queue_list = (1..=worker_num)
+            .map(WorkerID)
+            .map(super::format_request_queue_key)
+            .collect();
+        let response_queue = super::format_response_queue_key();
+        Ok(Self {
+            recv_conn: client.get_connection()?,
+            send_conn: client.get_connection()?,
+            request_queue_list,
+            response_queue,
+            block_size,
+            block_num,
+            k_p,
+        })
+    }
+}
+
+impl super::CoordinatorCmds for BuildData {
+    fn exec(self: Box<Self>) -> SUResult<()> {
         const CH_SIZE: usize = 32;
-        let request_list = self.config.request_queue_list.clone();
-        let worker_id_range = 1..request_list.len() + 1;
-        let response_list = self.config.response_queue.clone();
-        let block_size = self.config.block_size;
-        let mut block_num = self.config.block_num;
-        let (k, p) = self.config.k_p;
+        let request_queue_list = self.request_queue_list;
+        let response_queue = self.response_queue.clone();
+        let worker_id_range = 1..request_queue_list.len() + 1;
+        let block_size = self.block_size;
+        let mut recv_conn = self.recv_conn;
+        let mut send_conn = self.send_conn;
+        let mut block_num = self.block_num;
+        let (k, p) = self.k_p;
         let n = k + p;
         let stripe_num = block_num.div_ceil(n);
         if block_num % n != 0 {
@@ -40,19 +87,14 @@ impl Coordinator {
             worker_id_range.len()
         );
 
-        // connect to redis
-        let mut conn = self
-            .client
-            .get_connection()
-            .expect("fail to get redis connection");
-
         // make sure redis is clean
         let _: () = redis::cmd("FLUSHALL")
-            .query(&mut conn)
+            .query(&mut send_conn)
             .expect("fail to flush redis");
 
         // make sure workers are alive
-        let alive_workers = self.broadcast_heartbeat(&mut conn)?;
+        let alive_workers =
+            super::broadcast_heartbeat(&request_queue_list, &response_queue, &mut recv_conn)?;
         if alive_workers != worker_id_range.clone().map(WorkerID).collect::<Vec<_>>() {
             let offline_workers = worker_id_range
                 .clone()
@@ -103,18 +145,19 @@ impl Coordinator {
 
         let dispatcher_handle = std::thread::spawn(move || {
             while let Ok(item) = stripe_consumer.recv() {
-                std::iter::zip(item, request_list.iter().cycle())
-                    .for_each(|(request, key)| request.try_push_to_redis(&mut conn, key).unwrap());
+                std::iter::zip(item, request_queue_list.iter().cycle()).for_each(
+                    |(request, key)| request.try_push_to_redis(&mut send_conn, key).unwrap(),
+                );
             }
         });
 
-        let mut conn = self.client.get_connection().unwrap();
         let ack_handle = std::thread::spawn(move || {
             (0..block_num)
                 .progress_with_style(progress_style_template(Some("block stored")))
                 .for_each(|_| {
-                    let response = WorkerResponse::try_fetch_from_redis(&mut conn, &response_list)
-                        .expect("redis error");
+                    let response =
+                        WorkerResponse::try_fetch_from_redis(&mut recv_conn, &response_queue)
+                            .expect("redis error");
                     match response {
                         WorkerResponse::StoreBlock => (),
                         WorkerResponse::Nak(err) => panic!("nak of storing blocks: {err}"),

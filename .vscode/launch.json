@@ -129,6 +129,28 @@
                 "build-data"
             ],
             "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'cluster coordinator purge'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=cluster",
+                    "--package=stripe-update"
+                ],
+                "filter": {
+                    "name": "cluster",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "coordinator",
+                "-c=./run_config.toml",
+                "purge"
+            ],
+            "cwd": "${workspaceFolder}"
         }
     ]
 }

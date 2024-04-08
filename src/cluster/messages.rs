@@ -90,9 +90,9 @@ pub enum WorkerResponse {
     /// Update parity block
     UpdateParity,
     /// Clean up all the buffered slices
-    FlushBuf,
+    FlushBuf(WorkerID),
     /// Delete all the blocks
-    DropStore,
+    DropStore(WorkerID),
     /// Ack for Heartbeat
     HeartBeat(WorkerID),
     /// Shutdown the worker

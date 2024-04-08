@@ -11,7 +11,7 @@ use std::{num::NonZeroUsize, path::PathBuf};
 
 use clap::Subcommand;
 use stripe_update::{
-    cluster,
+    cluster::{self},
     config::{self, ec_k},
 };
 
@@ -52,6 +52,8 @@ enum CoordinatorCmds {
     BuildData,
     /// Purge all the existing data in the cluster
     Purge,
+    /// Benchmark stripe update
+    BenchUpdate,
     /// Kill all workers
     KillAll,
 }
@@ -60,7 +62,7 @@ fn launch_coordinator(cmd: CoordinatorCmds, config: PathBuf) {
     config::init_config_toml(&config);
     config::validate_config();
     config::validate_cluster_config(None);
-    let coordinator = crate::cluster::coordinator::CoordinatorBuilder::default()
+    let builder = crate::cluster::coordinator::CoordinatorBuilder::default()
         .redis_url(config::redis_url().expect("redis url not set in config file"))
         .block_size(NonZeroUsize::new(config::block_size()).unwrap())
         .block_num(NonZeroUsize::new(config::block_num()).unwrap())
@@ -71,15 +73,17 @@ fn launch_coordinator(cmd: CoordinatorCmds, config: PathBuf) {
         .k_p(
             NonZeroUsize::new(ec_k()).unwrap(),
             NonZeroUsize::new(config::ec_p()).unwrap(),
-        )
-        .build()
-        .unwrap_or_else(|e| panic!("FATAL ERROR in coordinator builder: {e}"));
-    match cmd {
-        CoordinatorCmds::BuildData => coordinator.build_data(),
-        CoordinatorCmds::KillAll => coordinator.kill_all(),
-        CoordinatorCmds::Purge => coordinator.purge(),
-    }
-    .unwrap_or_else(|e| panic!("FATAL ERROR in coordinator: {e}"))
+        );
+    use stripe_update::cluster::coordinator::cmds::*;
+    use stripe_update::cluster::coordinator::CoordinatorCmds as Cmds;
+    let exec: Box<dyn Cmds> = match cmd {
+        CoordinatorCmds::BuildData => BuildData::try_from(builder).map(Box::new).unwrap(),
+        CoordinatorCmds::BenchUpdate => todo!(),
+        CoordinatorCmds::KillAll => KillAll::try_from(builder).map(Box::new).unwrap(),
+        CoordinatorCmds::Purge => Purge::try_from(builder).map(Box::new).unwrap(),
+    };
+    exec.exec()
+        .unwrap_or_else(|e| panic!("FATAL ERROR in coordinator: {e}"))
 }
 
 fn launch_worker(id: usize, config: PathBuf) {

@@ -201,8 +201,8 @@ fn worker_thread_handle(
                 ranges,
                 payload,
             } => do_update_parity(&mut hdd_store, id, ranges, payload),
-            CoordinatorRequest::FlushBuf => do_flush_buf(&mut ssd_buf),
-            CoordinatorRequest::DropStore => do_drop_store(&mut hdd_store),
+            CoordinatorRequest::FlushBuf => do_flush_buf(worker_id, &mut ssd_buf),
+            CoordinatorRequest::DropStore => do_drop_store(worker_id, &mut hdd_store),
             CoordinatorRequest::HeartBeat => do_heartbeat(worker_id),
             CoordinatorRequest::Shutdown => do_shutdown(worker_id),
         }?;
@@ -340,15 +340,16 @@ fn do_update_parity(
 }
 
 fn do_flush_buf(
+    worker_id: WorkerID,
     ssd_buf: &mut FixedSizeSliceBuf<impl EvictStrategySlice>,
 ) -> SUResult<WorkerResponse> {
     Ok(ssd_buf
         .cleanup_dev()
-        .map(|_| WorkerResponse::FlushBuf)
+        .map(|_| WorkerResponse::FlushBuf(worker_id))
         .unwrap_or_else(|e| WorkerResponse::Nak(format!("fail to flush buffer: {e}"))))
 }
 
-fn do_drop_store(hdd_store: &mut HDDStorage) -> SUResult<WorkerResponse> {
+fn do_drop_store(worker_id: WorkerID, hdd_store: &mut HDDStorage) -> SUResult<WorkerResponse> {
     fn purge_dir(path: &std::path::Path) -> SUResult<()> {
         use std::fs;
         for entry in fs::read_dir(path)? {
@@ -359,7 +360,7 @@ fn do_drop_store(hdd_store: &mut HDDStorage) -> SUResult<WorkerResponse> {
     let dev_path = hdd_store.get_dev_root();
     let response = purge_dir(dev_path)
         .and_then(|_| std::fs::create_dir_all(dev_path).map_err(SUError::Io))
-        .map(|_| WorkerResponse::DropStore)
+        .map(|_| WorkerResponse::DropStore(worker_id))
         .unwrap_or_else(|e| WorkerResponse::Nak(format!("fail to drop store: {e}")));
     Ok(response)
 }

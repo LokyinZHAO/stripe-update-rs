@@ -111,7 +111,7 @@ pub fn validate_cluster_config(worker_id: Option<usize>) {
     if cluster.worker_num.get() < 1 {
         panic!("worker num must be greater than 0");
     }
-    if cluster.worker_num.get() != cluster.workers.len() {
+    if cluster.worker_num.get() > cluster.workers.len() {
         panic!("worker num must be equal to the number of worker dev path");
     }
     if let Some(worker_id) = worker_id {
@@ -206,14 +206,17 @@ pub fn slice_size() -> usize {
     get_config().slice_size.as_u64().try_into().unwrap()
 }
 
+/// Get the url to connect to redis
 pub fn redis_url() -> Option<String> {
     get_config().cluster.as_ref().map(|c| c.redis_url.clone())
 }
 
+/// Get the number of workers
 pub fn worker_num() -> Option<usize> {
     get_config().cluster.as_ref().map(|c| c.worker_num.get())
 }
 
+/// Get the ssd device path of a worker
 pub fn worker_ssd_dev_path(worker_id: usize) -> Option<std::path::PathBuf> {
     get_config()
         .cluster
@@ -221,9 +224,15 @@ pub fn worker_ssd_dev_path(worker_id: usize) -> Option<std::path::PathBuf> {
         .and_then(|c| c.workers.get(worker_id - 1).map(|w| w.ssd_dev_path.clone()))
 }
 
+/// Get the hdd device path of a worker
 pub fn worker_hdd_dev_path(worker_id: usize) -> Option<std::path::PathBuf> {
     get_config()
         .cluster
         .as_ref()
         .and_then(|c| c.workers.get(worker_id - 1).map(|w| w.hdd_dev_path.clone()))
+}
+
+/// Get the interval of heartbeat
+pub fn heartbeat_interval() -> std::time::Duration {
+    std::time::Duration::from_secs(1)
 }

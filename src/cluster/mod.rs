@@ -63,7 +63,9 @@ impl<'de> serde::Deserialize<'de> for Ranges {
     }
 }
 
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, serde::Serialize, serde::Deserialize,
+)]
 struct WorkerID(usize);
 
 impl std::fmt::Display for WorkerID {
@@ -104,9 +106,6 @@ fn format_response_queue_key() -> MessageQueueKey {
 }
 
 fn _parse_request_queue_key(key: &MessageQueueKey) -> Option<WorkerID> {
-    if key.starts_with("c-") {
-        key[2..].parse().ok().map(WorkerID)
-    } else {
-        None
-    }
+    key.strip_prefix("c-")
+        .and_then(|stripped| stripped.parse().ok().map(WorkerID))
 }

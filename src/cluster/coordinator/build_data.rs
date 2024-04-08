@@ -1,16 +1,15 @@
-use std::{io::Write, num::NonZeroUsize};
+use std::num::NonZeroUsize;
 
 use indicatif::ProgressIterator;
 use itertools::zip_eq;
-use redis::Commands;
 
 use crate::{
     cluster::{
         messages::{CoordinatorRequest, WorkerResponse},
-        progress_style_template,
+        progress_style_template, WorkerID,
     },
     erasure_code::{ErasureCode, ReedSolomon, Stripe},
-    SUResult,
+    SUError, SUResult,
 };
 
 use super::Coordinator;
@@ -23,7 +22,6 @@ impl Coordinator {
         let response_list = self.config.response_queue.clone();
         let block_size = self.config.block_size;
         let mut block_num = self.config.block_num;
-        let purge = self.config.purge;
         let (k, p) = self.config.k_p;
         let n = k + p;
         let stripe_num = block_num.div_ceil(n);
@@ -48,30 +46,27 @@ impl Coordinator {
             .get_connection()
             .expect("fail to get redis connection");
 
-        // clean up
-        if purge {
-            print!("purging dir...");
-            std::io::stdout().flush().unwrap();
-            request_list.iter().for_each(|key| {
-                let _: () = conn
-                    .rpush(key, CoordinatorRequest::FlushBuf)
-                    .expect("redis send error");
-                let _: () = conn
-                    .rpush(key, CoordinatorRequest::DropStore)
-                    .expect("redis send error");
-            });
-            worker_id_range.for_each(|_| {
-                let response: WorkerResponse = conn
-                    .blpop(response_list.as_str(), 0_f64)
-                    .expect("redis error");
-                match response {
-                    WorkerResponse::FlushBuf => (),
-                    WorkerResponse::DropStore => (),
-                    WorkerResponse::Nak(err) => panic!("nak of purging: {err}"),
-                    _ => unreachable!("unexpected response"),
-                }
-            });
-            println!("done");
+        // make sure redis is clean
+        let _: () = redis::cmd("FLUSHALL")
+            .query(&mut conn)
+            .expect("fail to flush redis");
+
+        // make sure workers are alive
+        let alive_workers = self.broadcast_heartbeat(&mut conn)?;
+        if alive_workers != worker_id_range.clone().map(WorkerID).collect::<Vec<_>>() {
+            let offline_workers = worker_id_range
+                .clone()
+                .map(WorkerID)
+                .filter(|id| !alive_workers.contains(id))
+                .collect::<Vec<_>>();
+            let offline_workers = offline_workers
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(SUError::Other(format!(
+                "workers [{offline_workers}] are offline"
+            )));
         }
 
         type StripeItem = Vec<CoordinatorRequest>;
@@ -95,7 +90,7 @@ impl Coordinator {
                 });
                 rs.encode_stripe(&mut stripe)
                     .expect("fail to encode stripe");
-                let block_id_range = (stripe_id * p)..(stripe_id * p + p);
+                let block_id_range = (stripe_id * n)..(stripe_id * n + n);
                 let item = zip_eq(stripe.into_blocks(), block_id_range)
                     .map(|(payload, id)| CoordinatorRequest::StoreBlock {
                         id,
@@ -108,8 +103,8 @@ impl Coordinator {
 
         let dispatcher_handle = std::thread::spawn(move || {
             while let Ok(item) = stripe_consumer.recv() {
-                itertools::zip_eq(item, request_list.iter())
-                    .for_each(|(request, key)| conn.rpush(key, request).unwrap());
+                std::iter::zip(item, request_list.iter().cycle())
+                    .for_each(|(request, key)| request.try_push_to_redis(&mut conn, key).unwrap());
             }
         });
 
@@ -118,8 +113,7 @@ impl Coordinator {
             (0..block_num)
                 .progress_with_style(progress_style_template(Some("block stored")))
                 .for_each(|_| {
-                    let response: WorkerResponse = conn
-                        .rpop(response_list.as_str(), None)
+                    let response = WorkerResponse::try_fetch_from_redis(&mut conn, &response_list)
                         .expect("redis error");
                     match response {
                         WorkerResponse::StoreBlock => (),

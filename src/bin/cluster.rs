@@ -50,6 +50,8 @@ enum Commands {
 enum CoordinatorCmds {
     /// Build data for the cluster
     BuildData,
+    /// Purge all the existing data in the cluster
+    Purge,
     /// Kill all workers
     KillAll,
 }
@@ -75,6 +77,7 @@ fn launch_coordinator(cmd: CoordinatorCmds, config: PathBuf) {
     match cmd {
         CoordinatorCmds::BuildData => coordinator.build_data(),
         CoordinatorCmds::KillAll => coordinator.kill_all(),
+        CoordinatorCmds::Purge => coordinator.purge(),
     }
     .unwrap_or_else(|e| panic!("FATAL ERROR in coordinator: {e}"))
 }

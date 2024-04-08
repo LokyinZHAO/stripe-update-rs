@@ -208,6 +208,7 @@ fn worker_thread_handle(
         }?;
         send_ch.send(response).unwrap();
         if shutdown {
+            println!("received shutdown signal from coordinator");
             break;
         }
     }

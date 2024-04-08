@@ -89,7 +89,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'cluster coordinator'",
+            "name": "Debug executable 'cluster coordinator kill-all'",
             "cargo": {
                 "args": [
                     "build",
@@ -105,6 +105,28 @@
                 "coordinator",
                 "-c=./run_config.toml",
                 "kill-all"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'cluster coordinator build-data'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=cluster",
+                    "--package=stripe-update"
+                ],
+                "filter": {
+                    "name": "cluster",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "coordinator",
+                "-c=./run_config.toml",
+                "build-data"
             ],
             "cwd": "${workspaceFolder}"
         }

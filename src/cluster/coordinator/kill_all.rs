@@ -1,8 +1,11 @@
+use std::collections::BTreeMap;
+
+use indicatif::ProgressIterator;
+
 use crate::{
     cluster::{
-        format_request_queue_key,
-        messages::{CoordinatorRequest, WorkerResponse},
-        MessageQueueKey, WorkerID,
+        messages::{coordinator_request::Request, worker_response::Response},
+        progress_style_template, MessageQueueKey, WorkerID,
     },
     SUError, SUResult,
 };
@@ -26,20 +29,17 @@ impl TryFrom<super::CoordinatorBuilder> for KillAll {
         Ok(KillAll {
             conn: redis::Client::open(redis_url)?.get_connection()?,
             request_queue_list: (1..=worker_num)
+                .map(|i| i.try_into().unwrap())
                 .map(WorkerID)
-                .map(format_request_queue_key)
+                .map(crate::cluster::format_request_queue_key)
                 .collect(),
-            response_queue: super::format_response_queue_key(),
+            response_queue: crate::cluster::format_response_queue_key(),
         })
     }
 }
 
 impl super::CoordinatorCmds for KillAll {
     fn exec(mut self: Box<Self>) -> SUResult<()> {
-        // let mut conn = self
-        //     .client
-        //     .get_connection()
-        //     .expect("fail to get redis connection");
         redis::cmd("FLUSHALL").query(&mut self.conn)?;
         println!("broadcasting heartbeat...");
         std::io::stdout().flush().unwrap();
@@ -56,25 +56,27 @@ impl super::CoordinatorCmds for KillAll {
         alive_workers.iter().for_each(|&id| print!(" {id}"));
         use std::io::Write;
         std::io::stdout().flush().unwrap();
-        alive_workers
+        let mut task_map = alive_workers
             .iter()
-            .map(|worker_id| format_request_queue_key(*worker_id))
-            .try_for_each(|key| {
-                CoordinatorRequest::Shutdown.try_push_to_redis(&mut self.conn, &key)
-            })?;
+            .cloned()
+            .map(crate::cluster::format_request_queue_key)
+            .map(|key| {
+                let request = Request::shutdown();
+                let id = request.id;
+                request
+                    .push_to_redis(&mut self.conn, key.as_str())
+                    .map(|_| (id, None))
+            })
+            .collect::<SUResult<BTreeMap<_, _>>>()?;
         println!("\nwaiting for workers to shutdown...");
-        std::io::stdout().flush().unwrap();
         (0..alive_workers.len())
+            .progress_with_style(progress_style_template(Some("shutting down workers")))
             .try_for_each(|_| {
-                let res: WorkerResponse =
-                    WorkerResponse::try_fetch_from_redis(&mut self.conn, &self.response_queue)?;
-                match res {
-                    WorkerResponse::Shutdown(WorkerID(id)) => {
-                        println!("worker {id} has been shutdown")
-                    }
-                    WorkerResponse::Nak(err) => eprintln!("shutdown fails: {err}"),
-                    _ => panic!("bad response"),
-                }
+                let res = Response::fetch_from_redis(&mut self.conn, &self.response_queue)?;
+                task_map
+                    .get_mut(&res.id)
+                    .expect("unexpected response")
+                    .replace(Some(res));
                 Ok::<(), SUError>(())
             })
             .unwrap_or_else(|e| eprintln!("shutdown fails: {e}"));

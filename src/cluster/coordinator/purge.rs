@@ -1,12 +1,15 @@
-use std::io::Write;
+use std::collections::BTreeMap;
 
-use redis::Commands;
+use indicatif::ProgressIterator;
 
 use crate::{
     cluster::{
         format_request_queue_key,
-        messages::{CoordinatorRequest, WorkerResponse},
-        MessageQueueKey, WorkerID,
+        messages::{
+            coordinator_request::Request,
+            worker_response::{Ack, Response},
+        },
+        progress_style_template, MessageQueueKey, WorkerID,
     },
     SUError, SUResult,
 };
@@ -32,19 +35,21 @@ impl TryFrom<super::CoordinatorBuilder> for Purge {
         Ok(Purge {
             conn: redis::Client::open(redis_url)?.get_connection()?,
             request_queue_list: (1..=worker_num)
+                .map(|i| i.try_into().unwrap())
                 .map(WorkerID)
                 .map(format_request_queue_key)
                 .collect(),
-            response_queue: super::format_response_queue_key(),
+            response_queue: crate::cluster::format_response_queue_key(),
         })
     }
 }
+
 impl CoordinatorCmds for Purge {
     fn exec(mut self: Box<Self>) -> SUResult<()> {
         let worker_num = self.request_queue_list.len();
-        let worker_id_range = 1..worker_num + 1;
 
         redis::cmd("FLUSHALL").query(&mut self.conn)?;
+
         // get alive workers
         let alive_workers = super::broadcast_heartbeat(
             &self.request_queue_list,
@@ -59,46 +64,80 @@ impl CoordinatorCmds for Purge {
                 .collect::<Vec<_>>()
                 .join(", ")
         );
+
         println!("purging dir...");
-        self.request_queue_list.iter().for_each(|key| {
-            let _: () = self
-                .conn
-                .rpush(key, CoordinatorRequest::FlushBuf)
-                .expect("redis send error");
-            let _: () = self
-                .conn
-                .rpush(key, CoordinatorRequest::DropStore)
-                .expect("redis send error");
-        });
-        let mut flush_buf_ack = vec![false; worker_num];
-        let mut drop_ack = vec![false; worker_num];
-        (0..worker_num * 2).try_for_each(|_| -> SUResult<()> {
-            let flush_response =
-                WorkerResponse::try_fetch_from_redis(&mut self.conn, &self.response_queue)?;
-            match flush_response {
-                WorkerResponse::FlushBuf(WorkerID(worker_id)) => {
-                    flush_buf_ack[worker_id - 1] = true;
-                    Ok(())
-                }
-                WorkerResponse::DropStore(WorkerID(worker_id)) => {
-                    drop_ack[worker_id - 1] = true;
-                    Ok(())
-                }
-                WorkerResponse::Nak(err) => Err(SUError::Other(format!("worker error: {err}"))),
-                _ => unreachable!("unexpected response"),
-            }
-        })?;
-        use itertools::Itertools;
-        flush_buf_ack
+        let mut flush_tasks = self
+            .request_queue_list
             .iter()
-            .zip_eq(worker_id_range.clone())
-            .filter(|(ack, _)| !**ack)
-            .for_each(|(_, id)| eprintln!("worker {id} fail to flush buf"));
-        drop_ack
+            .map(|key| -> SUResult<_> {
+                let request = Request::flush_buf();
+                let id = request.id;
+                request
+                    .push_to_redis(&mut self.conn, key)
+                    .map(|_| (id, None::<Response>))
+            })
+            .collect::<SUResult<BTreeMap<_, _>>>()?;
+        let mut drop_tasks = self
+            .request_queue_list
             .iter()
-            .zip_eq(worker_id_range)
-            .filter(|(ack, _)| !**ack)
-            .for_each(|(_, id)| eprintln!("worker {id} fail to drop store"));
+            .map(|key| -> SUResult<_> {
+                let request = Request::drop_store();
+                let id = request.id;
+                request
+                    .push_to_redis(&mut self.conn, key)
+                    .map(|_| (id, None::<Response>))
+            })
+            .collect::<SUResult<BTreeMap<_, _>>>()?;
+
+        (0..worker_num * 2)
+            .progress_with_style(progress_style_template(Some("purging worker data")))
+            .try_for_each(|_| -> SUResult<()> {
+                let response = Response::fetch_from_redis(&mut self.conn, &self.response_queue)?;
+                let task_id = response.id;
+                match &response.head {
+                    Ok(Ack::FlushBuf { .. }) => {
+                        flush_tasks
+                            .get_mut(&task_id)
+                            .expect("bad task id")
+                            .replace(response);
+                    }
+                    Ok(Ack::DropStore { .. }) => {
+                        drop_tasks
+                            .get_mut(&task_id)
+                            .expect("bad task id")
+                            .replace(response);
+                    }
+                    Err(..) => {
+                        flush_tasks
+                            .get_mut(&task_id)
+                            .or_else(|| drop_tasks.get_mut(&task_id))
+                            .expect("bad task id")
+                            .replace(response);
+                    }
+                    _ => unreachable!("bad response"),
+                }
+                Ok(())
+            })?;
+        assert!(flush_tasks
+            .iter()
+            .chain(drop_tasks.iter())
+            .all(|(_, response)| { response.is_some() }));
+        flush_tasks
+            .into_iter()
+            .filter(|(_, response)| response.as_ref().unwrap().head.is_err())
+            .for_each(|(task_id, response)| {
+                let response = response.unwrap();
+                let err_str = String::from_utf8(response.payload.unwrap()).unwrap();
+                eprintln!("flush task {} failed: {}", task_id, err_str);
+            });
+        drop_tasks
+            .into_iter()
+            .filter(|(_, response)| response.as_ref().unwrap().head.is_err())
+            .for_each(|(task_id, response)| {
+                let response = response.unwrap();
+                let err_str = String::from_utf8(response.payload.unwrap()).unwrap();
+                eprintln!("drop task {} failed: {}", task_id, err_str);
+            });
         println!("done");
         Ok(())
     }

@@ -234,5 +234,5 @@ pub fn worker_hdd_dev_path(worker_id: usize) -> Option<std::path::PathBuf> {
 
 /// Get the interval of heartbeat
 pub fn heartbeat_interval() -> std::time::Duration {
-    std::time::Duration::from_secs(1)
+    std::time::Duration::from_millis(300)
 }

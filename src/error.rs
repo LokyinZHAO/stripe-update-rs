@@ -19,8 +19,15 @@ impl SUError {
         Self::InvalidArg(e.to_string())
     }
 
+    pub(crate) fn other(e: impl ToString) -> Self {
+        Self::Other(e.to_string())
+    }
+
     #[allow(dead_code)]
-    pub(crate) fn other(e: impl Into<String>, (file, line, column): (&str, u32, u32)) -> Self {
+    pub(crate) fn other_with_source_location(
+        e: impl Into<String>,
+        (file, line, column): (&str, u32, u32),
+    ) -> Self {
         Self::Other(format!("{}, at: {}:{}:{}", e.into(), file, line, column))
     }
 

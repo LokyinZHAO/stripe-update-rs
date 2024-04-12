@@ -5,7 +5,10 @@ use itertools::zip_eq;
 
 use crate::{
     cluster::{
-        messages::{CoordinatorRequest, WorkerResponse},
+        messages::{
+            coordinator_request::Request,
+            worker_response::{Ack, Response},
+        },
         progress_style_template, MessageQueueKey, WorkerID,
     },
     erasure_code::{ErasureCode, ReedSolomon, Stripe},
@@ -43,10 +46,11 @@ impl TryFrom<super::CoordinatorBuilder> for BuildData {
             .ok_or_else(|| SUError::Other("k and p not set".into()))?;
         let client = redis::Client::open(redis_url)?;
         let request_queue_list = (1..=worker_num)
+            .map(|i| i.try_into().unwrap())
             .map(WorkerID)
-            .map(super::format_request_queue_key)
+            .map(crate::cluster::format_request_queue_key)
             .collect();
-        let response_queue = super::format_response_queue_key();
+        let response_queue = crate::cluster::format_response_queue_key();
         Ok(Self {
             recv_conn: client.get_connection()?,
             send_conn: client.get_connection()?,
@@ -64,7 +68,7 @@ impl super::CoordinatorCmds for BuildData {
         const CH_SIZE: usize = 32;
         let request_queue_list = self.request_queue_list;
         let response_queue = self.response_queue.clone();
-        let worker_id_range = 1..request_queue_list.len() + 1;
+        let worker_id_range = 1_u8..u8::try_from(request_queue_list.len()).unwrap() + 1;
         let block_size = self.block_size;
         let mut recv_conn = self.recv_conn;
         let mut send_conn = self.send_conn;
@@ -78,12 +82,13 @@ impl super::CoordinatorCmds for BuildData {
         }
         // print configuration
         println!(
-            "block size: {block_size}
+            "block size: {}
             block num: {block_num}
             worker num: {}
             k: {k}
             p: {p}
             stripe num: {stripe_num}",
+            bytesize::ByteSize::b(block_size as u64),
             worker_id_range.len()
         );
 
@@ -111,7 +116,7 @@ impl super::CoordinatorCmds for BuildData {
             )));
         }
 
-        type StripeItem = Vec<CoordinatorRequest>;
+        type StripeItem = Vec<Request>;
         let (stripe_producer, stripe_consumer) =
             std::sync::mpsc::sync_channel::<StripeItem>(CH_SIZE);
 
@@ -134,10 +139,7 @@ impl super::CoordinatorCmds for BuildData {
                     .expect("fail to encode stripe");
                 let block_id_range = (stripe_id * n)..(stripe_id * n + n);
                 let item = zip_eq(stripe.into_blocks(), block_id_range)
-                    .map(|(payload, id)| CoordinatorRequest::StoreBlock {
-                        id,
-                        payload: payload.to_vec(),
-                    })
+                    .map(|(payload, id)| Request::store_block(id, payload.into()))
                     .collect::<Vec<_>>();
                 stripe_producer.send(item).unwrap();
             });
@@ -145,25 +147,27 @@ impl super::CoordinatorCmds for BuildData {
 
         let dispatcher_handle = std::thread::spawn(move || {
             while let Ok(item) = stripe_consumer.recv() {
-                std::iter::zip(item, request_queue_list.iter().cycle()).for_each(
-                    |(request, key)| request.try_push_to_redis(&mut send_conn, key).unwrap(),
-                );
+                std::iter::zip(item, request_queue_list.iter().cycle())
+                    .try_for_each(|(request, key)| request.push_to_redis(&mut send_conn, key))
+                    .expect("fail to dispatch stripe");
             }
         });
 
         let ack_handle = std::thread::spawn(move || {
             (0..block_num)
                 .progress_with_style(progress_style_template(Some("block stored")))
-                .for_each(|_| {
-                    let response =
-                        WorkerResponse::try_fetch_from_redis(&mut recv_conn, &response_queue)
-                            .expect("redis error");
-                    match response {
-                        WorkerResponse::StoreBlock => (),
-                        WorkerResponse::Nak(err) => panic!("nak of storing blocks: {err}"),
+                .try_for_each(|_| {
+                    let response = Response::fetch_from_redis(&mut recv_conn, &response_queue)?;
+                    match &response.head {
+                        Ok(Ack::StoreBlock) => Ok(()),
+                        Err(_) => Err(SUError::other(format!(
+                            "nak: {}",
+                            String::from_utf8(response.payload.unwrap()).unwrap()
+                        ))),
                         _ => unreachable!("unexpected response"),
                     }
-                });
+                })
+                .expect("fail to wait for acks");
         });
 
         stripe_maker_handle.join().unwrap();

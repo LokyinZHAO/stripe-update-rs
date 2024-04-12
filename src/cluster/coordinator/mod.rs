@@ -1,10 +1,8 @@
-use std::num::NonZeroUsize;
+use std::{collections::BTreeMap, num::NonZeroUsize};
 
 use crate::{config, SUError, SUResult};
-use itertools::Itertools;
-use redis::{Commands, FromRedisValue};
 
-mod bench_update;
+// mod bench_update;
 mod build_data;
 mod kill_all;
 mod purge;
@@ -15,8 +13,11 @@ pub mod cmds {
 }
 
 use super::{
-    format_request_queue_key, format_response_queue_key,
-    messages::{CoordinatorRequest, WorkerResponse},
+    messages::{
+        coordinator_request::Request,
+        worker_response::{Ack, Response},
+        TaskID,
+    },
     WorkerID,
 };
 
@@ -72,29 +73,39 @@ pub trait CoordinatorCmds {
 /// # Returns
 /// The alive workers' IDs.
 fn broadcast_heartbeat(
-    request_queue_list: &[impl redis::ToRedisArgs],
-    response_queue: &impl redis::ToRedisArgs,
+    request_queue_list: &[impl AsRef<str>],
+    response_queue: &impl AsRef<str>,
     conn: &mut redis::Connection,
 ) -> SUResult<Vec<WorkerID>> {
-    request_queue_list
+    let mut response_map = request_queue_list
         .iter()
-        .try_for_each(|key| conn.rpush(key, CoordinatorRequest::HeartBeat))
-        .map_err(SUError::from)?;
+        .map(|key| -> Result<TaskID, SUError> {
+            let request = Request::heartbeat();
+            let id = request.id;
+            request.push_to_redis(conn, key.as_ref()).map(|_| id)
+        })
+        .map(|t_id| t_id.map(|id| (id, None)))
+        .collect::<SUResult<BTreeMap<_, _>>>()?;
     std::thread::sleep(config::heartbeat_interval());
     let worker_num = request_queue_list.len();
-    let status = (0..worker_num)
-        .map(|_| -> SUResult<_> {
-            let res: redis::Value = conn.lpop(response_queue, None)?;
-            if let redis::Value::Nil = res {
-                Ok(None)
-            } else {
-                let res: WorkerResponse = WorkerResponse::from_redis_value(&res)?;
-                Ok(match res {
-                    WorkerResponse::HeartBeat(id) => Some(id),
-                    _ => unreachable!("bad response"),
-                })
-            }
+    for _ in 0..worker_num {
+        let response = Response::fetch_from_redis_timeout(conn, response_queue.as_ref(), None)?;
+        if response.is_none() {
+            // timeout
+            break;
+        }
+        let response = response.unwrap();
+        let id = response.id;
+        let val = response_map.get_mut(&id).expect("bad response id");
+        *val = Some(response);
+    }
+    let res = response_map
+        .into_iter()
+        .filter_map(|(_, v)| v)
+        .filter_map(|response| match &response.head {
+            Ok(Ack::HeartBeat { worker_id }) => Some(*worker_id),
+            _ => None,
         })
-        .collect::<Result<Vec<_>, SUError>>()?;
-    Ok(status.into_iter().flatten().dedup().sorted().collect())
+        .collect();
+    Ok(res)
 }

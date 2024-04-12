@@ -15,7 +15,11 @@ use crate::{
 
 use super::{
     format_request_queue_key, format_response_queue_key,
-    messages::{CoordinatorRequest, WorkerResponse},
+    messages::{
+        coordinator_request::{Head as RequestHead, Request},
+        worker_response::Response,
+        TaskID,
+    },
     Ranges, WorkerID,
 };
 
@@ -31,9 +35,9 @@ pub struct WorkerBuilder {
 
 impl WorkerBuilder {
     pub fn id(&mut self, id: usize) -> &mut Self {
-        self.id = Some(WorkerID(id));
+        self.id = Some(WorkerID(id.try_into().unwrap()));
         self.queue_key = Some((
-            format_request_queue_key(WorkerID(id)),
+            format_request_queue_key(WorkerID(id.try_into().unwrap())),
             format_response_queue_key(),
         ));
         self
@@ -150,13 +154,14 @@ impl TryFrom<WorkerBuilder> for Worker {
 fn receiver_thread_handle(
     mut conn: redis::Connection,
     key: String,
-    ch: SyncSender<CoordinatorRequest>,
+    ch: SyncSender<Request>,
 ) -> SUResult<()> {
     let mut shutdown = false;
     while !shutdown {
-        let request = CoordinatorRequest::try_fetch_from_redis(&mut conn, &key)?;
-        shutdown = matches!(request, CoordinatorRequest::Shutdown);
-        ch.send(request).expect("bad mpsc: no consumer");
+        let request = Request::fetch_from_redis(&mut conn, &key)?;
+        shutdown = matches!(&request.head, RequestHead::Shutdown);
+        ch.send(request)
+            .expect("bad mpsc: all the consumers are disconnected");
     }
     Ok(())
 }
@@ -164,192 +169,215 @@ fn receiver_thread_handle(
 fn sender_thread_handle(
     mut conn: redis::Connection,
     key: String,
-    ch: Receiver<WorkerResponse>,
+    ch: Receiver<Response>,
 ) -> SUResult<()> {
-    while let Ok(respond) = ch.recv() {
-        respond.try_push_to_redis(&mut conn, &key)?;
+    while let Ok(response) = ch.recv() {
+        response.push_to_redis(&mut conn, &key)?;
     }
     Ok(())
 }
 
 fn worker_thread_handle(
     worker_id: WorkerID,
-    recv_ch: Receiver<CoordinatorRequest>,
-    send_ch: SyncSender<WorkerResponse>,
+    recv_ch: Receiver<Request>,
+    send_ch: SyncSender<Response>,
     mut hdd_store: HDDStorage,
     mut ssd_buf: FixedSizeSliceBuf<NonEvict>,
 ) -> SUResult<()> {
-    while let Ok(request) = recv_ch.recv() {
-        let shutdown = matches!(request, CoordinatorRequest::Shutdown);
-        let response = match request {
-            CoordinatorRequest::StoreBlock { id, payload } => {
-                do_store_block(&mut hdd_store, id, payload)
+    while let Ok(Request {
+        id: task_id,
+        head,
+        payload,
+    }) = recv_ch.recv()
+    {
+        let response = match head {
+            RequestHead::StoreBlock { id, .. } => {
+                do_store_block(task_id, &mut hdd_store, id, payload.unwrap())
             }
-            CoordinatorRequest::RetrieveData { id, ranges } => {
-                do_retrieve_data(&mut hdd_store, id, ranges)
+            RequestHead::RetrieveData { id, ranges } => {
+                do_retrieve_data(task_id, &mut hdd_store, id, ranges)
             }
-            CoordinatorRequest::PersistUpdate { id } => {
-                do_persist_update(&mut hdd_store, &mut ssd_buf, id)
+            RequestHead::PersistUpdate { id } => {
+                do_persist_update(task_id, &mut hdd_store, &mut ssd_buf, id)
             }
-            CoordinatorRequest::BufferUpdateData {
-                id,
-                ranges,
-                payload,
-            } => do_buffer_update_data(&mut ssd_buf, id, ranges, payload),
-            CoordinatorRequest::UpdateParity {
-                id,
-                ranges,
-                payload,
-            } => do_update_parity(&mut hdd_store, id, ranges, payload),
-            CoordinatorRequest::FlushBuf => do_flush_buf(worker_id, &mut ssd_buf),
-            CoordinatorRequest::DropStore => do_drop_store(worker_id, &mut hdd_store),
-            CoordinatorRequest::HeartBeat => do_heartbeat(worker_id),
-            CoordinatorRequest::Shutdown => do_shutdown(worker_id),
+            RequestHead::BufferUpdateData { id, ranges, .. } => {
+                do_buffer_update_data(task_id, &mut ssd_buf, id, ranges, payload.unwrap())
+            }
+            RequestHead::UpdateParity { id, ranges, .. } => {
+                do_update_parity(task_id, &mut hdd_store, id, ranges, payload.unwrap())
+            }
+            RequestHead::FlushBuf => do_flush_buf(task_id, worker_id, &mut ssd_buf),
+            RequestHead::DropStore => do_drop_store(task_id, worker_id, &mut hdd_store),
+            RequestHead::HeartBeat => do_heartbeat(task_id, worker_id),
+            RequestHead::Shutdown => do_shutdown(task_id, worker_id),
         }?;
         send_ch.send(response).unwrap();
-        if shutdown {
-            println!("received shutdown signal from coordinator");
-            break;
-        }
     }
     Ok(())
 }
 
 fn do_store_block(
+    task_id: TaskID,
     hdd_store: &mut HDDStorage,
-    id: BlockId,
+    block_id: BlockId,
     data: Vec<u8>,
-) -> SUResult<WorkerResponse> {
+) -> SUResult<Response> {
     Ok(hdd_store
-        .put_block(id, &data)
-        .map(|()| WorkerResponse::StoreBlock)
-        .unwrap_or_else(|e| WorkerResponse::Nak(e.to_string())))
+        .put_block(block_id, &data)
+        .map(|()| Response::store_block(task_id))
+        .unwrap_or_else(|e| Response::nak(task_id, e)))
 }
 
 fn do_retrieve_data(
+    task_id: TaskID,
     hdd_store: &mut HDDStorage,
-    id: BlockId,
+    block_id: BlockId,
     ranges: Ranges,
-) -> SUResult<WorkerResponse> {
+) -> SUResult<Response> {
     let mut data = vec![0_u8; ranges.len()];
     let mut cursor = 0;
-    let res = ranges.to_ranges().iter().try_for_each(|range| {
+    for range in ranges.to_ranges().iter() {
         let len = range.len();
-        match hdd_store.get_slice(id, cursor, &mut data[cursor..cursor + len]) {
+        match hdd_store.get_slice(block_id, cursor, &mut data[cursor..cursor + len]) {
             Ok(Some(_)) => {
                 cursor += len;
-                Ok(())
             }
-            Ok(None) => Err(Ok(WorkerResponse::Nak(format!("block {id} not found")))),
+            Ok(None) => {
+                return Ok(Response::nak(
+                    task_id,
+                    format!("block {block_id} not found"),
+                ));
+            }
             Err(SUError::Range(range_err)) => {
-                Err(Ok(WorkerResponse::Nak(format!("range error: {range_err}"))))
+                return Ok(Response::nak(task_id, format!("range error: {range_err}")));
             }
-            Err(e) => Err(Err(e)),
+            Err(e) => {
+                return Err(e);
+            }
         }
-    });
-    match res {
-        Ok(_) => Ok(WorkerResponse::RetrieveSlice(data)),
-        Err(Ok(nak_response)) => Ok(nak_response),
-        Err(Err(e)) => Err(e),
     }
+    Ok(Response::retrieve_slice(task_id, data))
 }
 
 fn do_persist_update(
+    task_id: TaskID,
     hdd_store: &mut HDDStorage,
     ssd_buf: &mut FixedSizeSliceBuf<impl EvictStrategySlice>,
-    id: BlockId,
-) -> SUResult<WorkerResponse> {
-    let response = ssd_buf
-        .pop_one(id)
-        .map(|update| {
-            let mut ranges = Ranges::empty();
-            let mut cursor = 0;
-            let payload = update
-                .data
-                .slices
-                .into_iter()
-                .filter_map(|slice| match slice {
-                    crate::storage::SliceOpt::Present(data) => {
-                        let range = cursor..cursor + data.len();
-                        ranges
-                            .0
-                            .intersection_with(&range_collections::RangeSet2::from(range.clone()));
-                        hdd_store
-                            .put_slice(id, cursor, &data)
-                            .expect("fail to put slice"); // TODO: handle error
-                        cursor += data.len();
-                        Some(data)
-                    }
-                    crate::storage::SliceOpt::Absent(size) => {
-                        cursor += size;
-                        None
-                    }
-                })
-                .flatten()
-                .collect::<Vec<_>>();
-            WorkerResponse::PersistUpdate(ranges, payload)
+    block_id: BlockId,
+) -> SUResult<Response> {
+    let response = ssd_buf.pop_one(block_id);
+    if response.is_none() {
+        return Ok(Response::nak(
+            task_id,
+            format!("block {block_id} not found"),
+        ));
+    }
+    let eviction = response.unwrap();
+    let mut ranges = Ranges::empty();
+    let mut cursor = 0;
+    let result = eviction
+        .data
+        .slices
+        .into_iter()
+        .filter_map(|slice| match slice {
+            crate::storage::SliceOpt::Present(data) => {
+                let range = cursor..cursor + data.len();
+                ranges
+                    .0
+                    .intersection_with(&range_collections::RangeSet2::from(range.clone()));
+                cursor += data.len();
+                Some((data, range))
+            }
+            crate::storage::SliceOpt::Absent(size) => {
+                cursor += size;
+                None
+            }
         })
-        .unwrap_or_else(|| WorkerResponse::Nak(format!("no update for block {id}")));
-    Ok(response)
+        .map(|(data, range)| {
+            hdd_store
+                .put_slice(block_id, range.start, &data)
+                .map_err(|e| Response::nak(task_id, format!("fail to persist updates: {e}")))
+                .and_then(|opt| {
+                    opt.map(|_| data).ok_or_else(|| {
+                        Response::nak(task_id, format!("block {block_id} not found"))
+                    })
+                })
+        })
+        .collect::<Result<Vec<_>, Response>>()
+        .map(|bytes| /* WARNING: flatten may cause vec memory reallocation */ bytes.into_iter().flatten().collect::<Vec<u8>>())
+        .map(|data| Response::persist_update(task_id, ranges, data))
+        .unwrap_or_else(std::convert::identity);
+    Ok(result)
 }
 
 fn do_buffer_update_data(
+    task_id: TaskID,
     ssd_buf: &mut FixedSizeSliceBuf<impl EvictStrategySlice>,
-    id: BlockId,
+    block_id: BlockId,
     ranges: Ranges,
     data: Vec<u8>,
-) -> SUResult<WorkerResponse> {
+) -> SUResult<Response> {
     let mut cursor = 0;
-    let result = ranges.to_ranges().iter().try_for_each(|range| {
+    for range in ranges.to_ranges().iter() {
         let update_slice = &data[cursor..cursor + range.len()];
-        let result = ssd_buf.push_slice(id, range.start, update_slice);
+        let result = ssd_buf.push_slice(block_id, range.start, update_slice);
         cursor += range.len();
         match result {
-            Ok(Some(_)) => unreachable!(),
-            Ok(None) => Ok(()),
-            Err(e) => Err(WorkerResponse::Nak(format!("fail to buffer updates: {e}"))),
+            Ok(Some(_)) => unreachable!("unexpected eviction"),
+            Ok(None) => (),
+            Err(SUError::Range(e)) => {
+                return Ok(Response::nak(task_id, format!("range error: {e}")));
+            }
+            Err(e) => {
+                return Err(e);
+            }
         }
-    });
-    Ok(match result {
-        Ok(_) => WorkerResponse::BufferUpdateData,
-        Err(r) => r,
-    })
+    }
+    Ok(Response::buffer_update_data(task_id))
 }
 
 fn do_update_parity(
+    task_id: TaskID,
     hdd_store: &mut HDDStorage,
     id: BlockId,
     ranges: Ranges,
     data: Vec<u8>,
-) -> SUResult<WorkerResponse> {
+) -> SUResult<Response> {
     let mut cursor = 0;
-    let result = ranges.to_ranges().iter().try_for_each(|range| {
+    for range in ranges.to_ranges().iter() {
         let slice_data = &data[cursor..cursor + range.len()];
         let result = hdd_store.put_slice(id, range.start, slice_data);
         cursor += range.len();
         match result {
-            Ok(Some(_)) => Ok(()),
-            Ok(None) => Err(WorkerResponse::Nak(format!("block id {id} not found"))),
-            Err(e) => Err(WorkerResponse::Nak(format!("fail to update parity: {e}"))),
+            Ok(Some(_)) => (),
+            Ok(None) => {
+                return Ok(Response::nak(task_id, format!("block id {id} not found")));
+            }
+            Err(SUError::Range(e)) => {
+                return Ok(Response::nak(task_id, format!("range error: {e}")));
+            }
+            Err(e) => return Err(e),
         }
-    });
-    Ok(match result {
-        Ok(_) => WorkerResponse::UpdateParity,
-        Err(r) => r,
-    })
+    }
+    Ok(Response::update_parity(task_id))
 }
 
 fn do_flush_buf(
+    task_id: TaskID,
     worker_id: WorkerID,
     ssd_buf: &mut FixedSizeSliceBuf<impl EvictStrategySlice>,
-) -> SUResult<WorkerResponse> {
+) -> SUResult<Response> {
     Ok(ssd_buf
         .cleanup_dev()
-        .map(|_| WorkerResponse::FlushBuf(worker_id))
-        .unwrap_or_else(|e| WorkerResponse::Nak(format!("fail to flush buffer: {e}"))))
+        .map(|_| Response::flush_buf(task_id, worker_id))
+        .unwrap_or_else(|e| Response::nak(task_id, format!("fail to flush buffer: {e}"))))
 }
 
-fn do_drop_store(worker_id: WorkerID, hdd_store: &mut HDDStorage) -> SUResult<WorkerResponse> {
+fn do_drop_store(
+    task_id: TaskID,
+    worker_id: WorkerID,
+    hdd_store: &mut HDDStorage,
+) -> SUResult<Response> {
     fn purge_dir(path: &std::path::Path) -> SUResult<()> {
         use std::fs;
         for entry in fs::read_dir(path)? {
@@ -360,15 +388,15 @@ fn do_drop_store(worker_id: WorkerID, hdd_store: &mut HDDStorage) -> SUResult<Wo
     let dev_path = hdd_store.get_dev_root();
     let response = purge_dir(dev_path)
         .and_then(|_| std::fs::create_dir_all(dev_path).map_err(SUError::Io))
-        .map(|_| WorkerResponse::DropStore(worker_id))
-        .unwrap_or_else(|e| WorkerResponse::Nak(format!("fail to drop store: {e}")));
+        .map(|_| Response::drop_store(task_id, worker_id))
+        .unwrap_or_else(|e| Response::nak(task_id, format!("fail to drop store: {e}")));
     Ok(response)
 }
 
-fn do_heartbeat(worker_id: WorkerID) -> SUResult<WorkerResponse> {
-    Ok(WorkerResponse::HeartBeat(worker_id))
+fn do_heartbeat(task_id: TaskID, worker_id: WorkerID) -> SUResult<Response> {
+    Ok(Response::heartbeat(task_id, worker_id))
 }
 
-fn do_shutdown(worker_id: WorkerID) -> SUResult<WorkerResponse> {
-    Ok(WorkerResponse::Shutdown(worker_id))
+fn do_shutdown(task_id: TaskID, worker_id: WorkerID) -> SUResult<Response> {
+    Ok(Response::shutdown(task_id, worker_id))
 }

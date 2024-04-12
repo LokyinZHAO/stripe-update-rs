@@ -76,14 +76,17 @@ fn launch_coordinator(cmd: CoordinatorCmds, config: PathBuf) {
         );
     use stripe_update::cluster::coordinator::cmds::*;
     use stripe_update::cluster::coordinator::CoordinatorCmds as Cmds;
-    let exec: Box<dyn Cmds> = match cmd {
-        CoordinatorCmds::BuildData => BuildData::try_from(builder).map(Box::new).unwrap(),
+    match cmd {
+        CoordinatorCmds::BuildData => BuildData::try_from(builder)
+            .map(Box::new)
+            .and_then(Cmds::exec),
         CoordinatorCmds::BenchUpdate => todo!(),
-        CoordinatorCmds::KillAll => KillAll::try_from(builder).map(Box::new).unwrap(),
-        CoordinatorCmds::Purge => Purge::try_from(builder).map(Box::new).unwrap(),
-    };
-    exec.exec()
-        .unwrap_or_else(|e| panic!("FATAL ERROR in coordinator: {e}"))
+        CoordinatorCmds::KillAll => KillAll::try_from(builder)
+            .map(Box::new)
+            .and_then(Cmds::exec),
+        CoordinatorCmds::Purge => Purge::try_from(builder).map(Box::new).and_then(Cmds::exec),
+    }
+    .unwrap_or_else(|e| panic!("FATAL ERROR in coordinator: {e}"));
 }
 
 fn launch_worker(id: usize, config: PathBuf) {

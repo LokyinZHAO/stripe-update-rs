@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.4.11", features = ["derive"] }
-bytes = "1.5.0"
+bytes = { version = "1.6.0", features = ["serde"] }
 isa-l = "0.2.0"
 lru = "0.12.1"
 rand = "0.8.5"
@@ -33,7 +33,7 @@ uuid = { version = "1.8.0", features = ["std", "v7", "fast-rng", "serde"] }
 [dev-dependencies]
 hex = "0.4.3"
 
-# Release with debuf infomation
+# Release with debug infomation
 [profile.rel-info]
 inherits = "release"
 debug = true

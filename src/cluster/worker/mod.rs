@@ -4,6 +4,8 @@ use std::{
     sync::mpsc::{Receiver, SyncSender},
 };
 
+use bytes::{Bytes, BytesMut};
+
 use crate::{
     cluster::dev_display,
     storage::{
@@ -220,7 +222,7 @@ fn do_store_block(
     task_id: TaskID,
     hdd_store: &mut HDDStorage,
     block_id: BlockId,
-    data: Vec<u8>,
+    data: Bytes,
 ) -> SUResult<Response> {
     Ok(hdd_store
         .put_block(block_id, &data)
@@ -234,7 +236,7 @@ fn do_retrieve_data(
     block_id: BlockId,
     ranges: Ranges,
 ) -> SUResult<Response> {
-    let mut data = vec![0_u8; ranges.len()];
+    let mut data = BytesMut::zeroed(ranges.len());
     let mut cursor = 0;
     for range in ranges.to_ranges().iter() {
         let len = range.len();
@@ -256,7 +258,7 @@ fn do_retrieve_data(
             }
         }
     }
-    Ok(Response::retrieve_slice(task_id, data))
+    Ok(Response::retrieve_slice(task_id, data.freeze()))
 }
 
 fn do_persist_update(
@@ -304,7 +306,7 @@ fn do_persist_update(
                 })
         })
         .collect::<Result<Vec<_>, Response>>()
-        .map(|bytes| /* WARNING: flatten may cause vec memory reallocation */ bytes.into_iter().flatten().collect::<Vec<u8>>())
+        .map(|bytes| /* WARNING: flatten may cause vec memory reallocation */ bytes.into_iter().flatten().collect::<Bytes>())
         .map(|data| Response::persist_update(task_id, ranges, data))
         .unwrap_or_else(std::convert::identity);
     Ok(result)
@@ -315,7 +317,7 @@ fn do_buffer_update_data(
     ssd_buf: &mut FixedSizeSliceBuf<impl EvictStrategySlice>,
     block_id: BlockId,
     ranges: Ranges,
-    data: Vec<u8>,
+    data: Bytes,
 ) -> SUResult<Response> {
     let mut cursor = 0;
     for range in ranges.to_ranges().iter() {
@@ -341,7 +343,7 @@ fn do_update_parity(
     hdd_store: &mut HDDStorage,
     id: BlockId,
     ranges: Ranges,
-    data: Vec<u8>,
+    data: Bytes,
 ) -> SUResult<Response> {
     let mut cursor = 0;
     for range in ranges.to_ranges().iter() {

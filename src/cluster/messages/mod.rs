@@ -1,5 +1,4 @@
-use std::ops::Deref;
-
+use bytes::Bytes;
 use redis::Commands;
 
 use crate::SUResult;
@@ -69,14 +68,14 @@ impl PayloadID {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone, Default)]
-pub struct PayloadData(#[serde(with = "serde_bytes")] Option<Vec<u8>>);
+pub struct PayloadData(Option<Bytes>);
 
 impl PayloadData {
-    fn new(data: Vec<u8>) -> Self {
+    fn new(data: Bytes) -> Self {
         Self(Some(data))
     }
 
-    pub fn unwrap(self) -> Vec<u8> {
+    pub fn unwrap(self) -> Bytes {
         self.0.unwrap()
     }
 
@@ -92,24 +91,17 @@ impl PayloadData {
             redis::Value::Data(data) => data,
             _ => unreachable!("bad redis value"),
         };
-        Ok(Self::new(data))
+        Ok(Self::new(data.into()))
     }
 
     pub fn push_to_redis(&self, id: PayloadID, conn: &mut redis::Connection) -> SUResult<()> {
-        let data = self.0.as_ref().unwrap().as_slice();
+        let data = self.0.as_ref().unwrap().as_ref();
+        // TODO: performance issue: redis makes a copy of the data
         conn.set_options(
             id,
             data,
             redis::SetOptions::default().conditional_set(redis::ExistenceCheck::NX),
         )?;
         Ok(())
-    }
-}
-
-impl Deref for PayloadData {
-    type Target = Option<Vec<u8>>;
-
-    fn deref(&self) -> &Self::Target {
-        &(self.0)
     }
 }

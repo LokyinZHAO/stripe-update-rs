@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use redis::Commands;
 use serde::{Deserialize, Serialize};
 
@@ -30,7 +31,7 @@ impl Request {
         Self::assemble(Head::DropStore, None)
     }
 
-    pub fn store_block(id: BlockId, payload: Vec<u8>) -> Self {
+    pub fn store_block(id: BlockId, payload: Bytes) -> Self {
         Self::assemble(
             Head::StoreBlock {
                 id,
@@ -42,7 +43,7 @@ impl Request {
 }
 
 impl Request {
-    fn assemble(head: Head, payload: Option<Vec<u8>>) -> Self {
+    fn assemble(head: Head, payload: Option<Bytes>) -> Self {
         if head.has_payload() {
             assert!(payload.is_some(), "payload is required");
         }

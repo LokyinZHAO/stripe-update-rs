@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use redis::Commands;
 use serde::{Deserialize, Serialize};
 
@@ -28,7 +29,7 @@ impl Response {
         Self::assemble_ack(task_id, Ack::StoreBlock, None)
     }
 
-    pub fn retrieve_slice(task_id: TaskID, payload: Vec<u8>) -> Self {
+    pub fn retrieve_slice(task_id: TaskID, payload: Bytes) -> Self {
         Self::assemble_ack(
             task_id,
             Ack::RetrieveSlice {
@@ -38,7 +39,7 @@ impl Response {
         )
     }
 
-    pub fn persist_update(task_id: TaskID, ranges: Ranges, payload: Vec<u8>) -> Self {
+    pub fn persist_update(task_id: TaskID, ranges: Ranges, payload: Bytes) -> Self {
         Self::assemble_ack(
             task_id,
             Ack::PersistUpdate {
@@ -114,7 +115,7 @@ impl Ack {
 }
 
 impl Response {
-    fn assemble_ack(task_id: TaskID, head: Ack, payload: Option<Vec<u8>>) -> Self {
+    fn assemble_ack(task_id: TaskID, head: Ack, payload: Option<Bytes>) -> Self {
         if head.has_payload() {
             assert!(payload.is_some(), "payload is required");
         }
@@ -129,7 +130,7 @@ impl Response {
         Self {
             id: task_id,
             head: Err(Nak(PayloadID::assign())),
-            payload: PayloadData::new(err_str.into().into_bytes()),
+            payload: PayloadData::new(err_str.into().into()),
         }
     }
 

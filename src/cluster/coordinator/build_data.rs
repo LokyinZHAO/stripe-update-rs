@@ -162,7 +162,7 @@ impl super::CoordinatorCmds for BuildData {
                         Ok(Ack::StoreBlock) => Ok(()),
                         Err(_) => Err(SUError::other(format!(
                             "nak: {}",
-                            String::from_utf8(response.payload.unwrap()).unwrap()
+                            String::from_utf8(response.payload.unwrap().into()).unwrap()
                         ))),
                         _ => unreachable!("unexpected response"),
                     }

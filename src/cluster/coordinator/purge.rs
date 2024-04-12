@@ -127,7 +127,7 @@ impl CoordinatorCmds for Purge {
             .filter(|(_, response)| response.as_ref().unwrap().head.is_err())
             .for_each(|(task_id, response)| {
                 let response = response.unwrap();
-                let err_str = String::from_utf8(response.payload.unwrap()).unwrap();
+                let err_str = String::from_utf8(response.payload.unwrap().into()).unwrap();
                 eprintln!("flush task {} failed: {}", task_id, err_str);
             });
         drop_tasks
@@ -135,7 +135,7 @@ impl CoordinatorCmds for Purge {
             .filter(|(_, response)| response.as_ref().unwrap().head.is_err())
             .for_each(|(task_id, response)| {
                 let response = response.unwrap();
-                let err_str = String::from_utf8(response.payload.unwrap()).unwrap();
+                let err_str = String::from_utf8(response.payload.unwrap().into()).unwrap();
                 eprintln!("drop task {} failed: {}", task_id, err_str);
             });
         println!("done");

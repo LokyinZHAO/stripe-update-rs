@@ -4,7 +4,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{cluster::Ranges, storage::BlockId, SUResult};
 
-use super::{PayloadData, PayloadID, TaskID};
+use super::{
+    payload::{PayloadData, PayloadID},
+    TaskID,
+};
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Request {
@@ -50,7 +53,7 @@ impl Request {
         Self {
             id: TaskID::assign(),
             head,
-            payload: PayloadData(payload),
+            payload: payload.map(PayloadData::new).unwrap_or_default(),
         }
     }
 

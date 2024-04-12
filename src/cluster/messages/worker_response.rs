@@ -7,7 +7,10 @@ use crate::{
     SUResult,
 };
 
-use super::{PayloadData, PayloadID, TaskID};
+use super::{
+    payload::{PayloadData, PayloadID},
+    TaskID,
+};
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone, Copy)]
 pub struct Nak(PayloadID);
@@ -122,7 +125,7 @@ impl Response {
         Self {
             id: task_id,
             head: Ok(head),
-            payload: PayloadData(payload),
+            payload: payload.map(PayloadData::new).unwrap_or_default(),
         }
     }
 

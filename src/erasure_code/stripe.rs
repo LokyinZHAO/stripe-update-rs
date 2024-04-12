@@ -21,13 +21,13 @@ impl Stripe {
     #[inline]
     /// number of the source blocks
     pub fn k(&self) -> usize {
-        self.k.try_into().unwrap()
+        self.k.into()
     }
 
     /// number of the parity blocks
     #[inline]
     pub fn p(&self) -> usize {
-        self.p.try_into().unwrap()
+        self.p.into()
     }
 
     /// number of the source and parity blocks
@@ -57,6 +57,11 @@ impl Stripe {
             p: p.try_into().unwrap(),
             stripe: vec,
         }
+    }
+
+    /// Convert this stripe to blocks
+    pub fn into_blocks(self) -> Vec<Block> {
+        self.stripe
     }
 
     /// Make a stripe with `k` source blocks and `p` parity blocks,
@@ -217,13 +222,13 @@ impl PartialStripe {
     /// number of the source blocks
     #[inline]
     pub fn k(&self) -> usize {
-        self.k.try_into().unwrap()
+        self.k.into()
     }
 
     /// number of the parity blocks
     #[inline]
     pub fn p(&self) -> usize {
-        self.p.try_into().unwrap()
+        self.p.into()
     }
 
     /// number of the source and parity blocks

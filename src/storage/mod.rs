@@ -9,6 +9,7 @@ mod utility;
 pub use evict::EvictStrategySlice;
 pub use evict::MostModifiedBlockEvict;
 pub use evict::MostModifiedStripeEvict;
+pub use evict::NonEvict;
 pub use hdd_storage::HDDStorage;
 pub use slice_buffer::FixedSizeSliceBuf;
 pub use ssd_storage::SSDStorage;
@@ -174,6 +175,7 @@ pub enum SliceOpt {
 }
 
 pub struct PartialBlock {
+    /// size of a full block
     pub size: usize,
     pub slices: Vec<SliceOpt>,
 }

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use crate::{storage::BlockId, SUResult};
 
 mod baseline;
+// mod dist_merge;
 mod dryrun;
 mod merge_stripe;
 

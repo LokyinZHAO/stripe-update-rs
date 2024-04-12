@@ -1,172 +1,95 @@
 use std::{
     io::Write,
     num::NonZeroUsize,
-    ops::Range,
     sync::{atomic::AtomicUsize, Arc},
 };
 
 use bytes::BytesMut;
 use indicatif::ProgressIterator;
-use range_collections::{RangeSet, RangeSet2};
 
 use crate::{
-    bench::UpdateRequest,
-    cmds::dev_display,
-    erasure_code::{Block, ErasureCode, PartialStripe, ReedSolomon, Stripe},
+    erasure_code::{Block, ErasureCode, PartialStripe, ReedSolomon},
+    standalone::bench::UpdateRequest,
+    standalone::dev_display,
     storage::{
-        BlockId, BufferEviction, EvictStrategySlice, FixedSizeSliceBuf, HDDStorage,
-        MostModifiedStripeEvict, PartialBlock, SliceBuffer, SliceOpt, SliceStorage, StripeId,
+        BlockId, BlockStorage, BufferEviction, FixedSizeSliceBuf, HDDStorage, PartialBlock,
+        SSDStorage, SliceBuffer, SliceOpt, SliceStorage,
     },
     SUResult,
 };
 
-pub fn rangeset_to_ranges(range_set: RangeSet2<usize>) -> Vec<Range<usize>> {
-    range_set
-        .boundaries()
-        .chunks_exact(2)
-        .map(|bound| bound[0]..bound[1])
-        .collect()
-}
-
 use super::Bench;
-#[derive(Debug)]
-struct UpdateCtx<EC: ErasureCode, EV: EvictStrategySlice> {
+
+struct UpdateCtx<E: ErasureCode> {
     hdd_storage: HDDStorage,
     block_size: usize,
-    slice_buf: FixedSizeSliceBuf<EV>,
-    ec: EC,
+    ec: E,
 }
 
-fn fetch_stripe<EC: ErasureCode, EV: EvictStrategySlice>(
-    UpdateCtx {
-        hdd_storage: _,
-        block_size: _,
-        slice_buf,
-        ec,
-    }: &UpdateCtx<EC, EV>,
-    block_id: BlockId,
-    update_slice: Vec<SliceOpt>,
-) -> (StripeId, Vec<Option<Vec<SliceOpt>>>) {
-    let m = ec.m();
-    let k = ec.k();
-    let stripe_id = StripeId::from(block_id / ec.m());
-    let source_block_id_range = stripe_id.into_inner() * m..stripe_id.into_inner() * m + k;
-    let mut updates = source_block_id_range
-        .map(|block_id| slice_buf.pop_one(block_id).map(|e| e.data.slices))
-        .collect::<Vec<_>>();
-    updates[block_id % m] = Some(update_slice);
-    (stripe_id, updates)
-}
-
-fn do_update<EC: ErasureCode, EV: EvictStrategySlice>(
+fn do_update<E: ErasureCode>(
     UpdateCtx {
         hdd_storage,
         block_size,
         ec,
-        slice_buf: _,
-    }: &UpdateCtx<EC, EV>,
-    stripe_id: StripeId,
-    stripe_update_slices: Vec<Option<Vec<SliceOpt>>>,
+    }: &UpdateCtx<E>,
+    block_id: BlockId,
+    update_slices: Vec<SliceOpt>,
 ) {
     let k = ec.k();
     let block_size = *block_size;
     let p = ec.p();
     let m = ec.m();
-    let source_block_id_range = stripe_id.into_inner() * m..stripe_id.into_inner() * m + k;
-    debug_assert_eq!(stripe_update_slices.len(), k);
-    let update_src_block_num = stripe_update_slices
-        .iter()
-        .filter(|opt| opt.is_some())
-        .count();
-    let union_range = stripe_update_slices
-        .iter()
-        .filter(|update_slice| update_slice.is_some())
-        .map(|update_slice| {
-            let mut range_set: RangeSet2<usize> = RangeSet::empty();
-            let mut offset = 0;
-            update_slice
-                .as_ref()
-                .unwrap()
-                .iter()
-                .for_each(|update| match update {
-                    SliceOpt::Present(slice) => {
-                        range_set.union_with(&RangeSet2::from(offset..offset + slice.len()));
-                        offset += slice.len();
-                    }
-                    SliceOpt::Absent(size) => offset += size,
-                });
-            range_set
+    let mut buf = BytesMut::zeroed(block_size * (1 + p));
+    let mut original_source = buf.split_to(block_size);
+    hdd_storage
+        .get_block(block_id, &mut original_source)
+        .unwrap()
+        .unwrap_or_else(|| panic!("block {block_id} not found"));
+    let mut source_offset: usize = 0;
+    let mut update_source = BytesMut::zeroed(block_size);
+    update_slices.iter().for_each(|slice| match slice {
+        crate::storage::SliceOpt::Present(data) => {
+            update_source[source_offset..source_offset + data.len()].copy_from_slice(data);
+            source_offset += data.len();
+        }
+        crate::storage::SliceOpt::Absent(size) => {
+            let range = source_offset..source_offset + size;
+            update_source[range.clone()].copy_from_slice(&original_source[range]);
+            source_offset += size;
+        }
+    });
+    let source = Block::from(original_source);
+    let parity = (k..m)
+        .map(|i| {
+            let id = block_id - block_id % m + i;
+            let mut parity = buf.split_to(block_size);
+            hdd_storage.get_block(id, &mut parity).unwrap().unwrap();
+            Block::from(parity)
         })
-        .fold(RangeSet2::<usize>::empty(), |acc, this| acc.union(&this));
-    let union_range = rangeset_to_ranges(union_range);
-    let is_full_update = update_src_block_num == k;
-    let mut buf = BytesMut::zeroed(block_size * (update_src_block_num + p));
+        .collect::<Vec<_>>();
     let mut partial_stripe = PartialStripe::make_absent_from_k_p(
         NonZeroUsize::new(k).unwrap(),
         NonZeroUsize::new(p).unwrap(),
         NonZeroUsize::new(block_size).unwrap(),
     );
-    stripe_update_slices
-        .iter()
-        .zip(source_block_id_range)
-        .filter(|(source_update, _)| source_update.is_some())
-        .for_each(|(_, block_id)| {
-            let mut source_data = buf.split_to(block_size);
-            union_range.iter().for_each(|range| {
-                hdd_storage
-                    .get_slice(block_id, range.start, &mut source_data[range.to_owned()])
-                    .unwrap()
-                    .unwrap();
-            });
-            let ret = partial_stripe.replace_block(block_id % m, Some(Block::from(source_data)));
-            debug_assert!(ret.is_none());
-        });
-    (stripe_id.into_inner() * m + k..stripe_id.into_inner() * m + m).for_each(|block_id| {
-        let mut parity_data = buf.split_to(block_size);
-        union_range.iter().for_each(|range| {
-            hdd_storage
-                .get_slice(block_id, range.start, &mut parity_data[range.to_owned()])
-                .unwrap()
-                .unwrap();
-        });
-        let ret = partial_stripe.replace_block(block_id % m, Some(Block::from(parity_data)));
-        debug_assert!(ret.is_none());
+    partial_stripe.replace_block(block_id % m, Some(source));
+    parity.into_iter().zip(k..m).for_each(|(parity, idx)| {
+        partial_stripe.replace_block(idx, Some(parity));
     });
-
-    if is_full_update {
-        let mut stripe = Stripe::try_from(partial_stripe).unwrap();
-        ec.encode_stripe(&mut stripe).unwrap();
-        stripe
-            .iter_source()
-            .chain(stripe.iter_parity())
-            .zip(stripe_id.into_inner() * m..stripe_id.into_inner() * m + m)
-            .for_each(|(block, block_id)| {
-                union_range.iter().for_each(|range| {
-                    hdd_storage
-                        .put_slice(block_id, range.start, &block[range.to_owned()])
-                        .unwrap()
-                        .unwrap()
-                })
-            });
-    } else {
-        partial_stripe.iter_present().for_each(|(idx, block_data)| {
-            let block_id = stripe_id.into_inner() * m + idx;
-            union_range.iter().for_each(|range| {
-                hdd_storage
-                    .put_slice(block_id, range.start, &block_data[range.to_owned()])
-                    .unwrap()
-                    .unwrap()
-            })
-        });
-    }
+    ec.delta_update(&update_source, block_id % m, 0, &mut partial_stripe)
+        .unwrap();
+    partial_stripe.iter_present().for_each(|(id, block)| {
+        let id = block_id - block_id % m + id;
+        hdd_storage.put_block(id, block).unwrap();
+    });
 }
 
 impl Bench {
-    pub(super) fn merge_stripe(&self) -> SUResult<()> {
+    pub(super) fn baseline(&self) -> SUResult<()> {
         const CHANNEL_SIZE: usize = 64;
         struct Ack();
-        let sync_channel = std::sync::mpsc::sync_channel::<UpdateRequest>(CHANNEL_SIZE);
-        let (update_producer, update_consumer) = sync_channel;
+        let (update_producer, update_consumer) =
+            std::sync::mpsc::sync_channel::<UpdateRequest>(CHANNEL_SIZE);
         let (ack_producer, ack_consumer) = std::sync::mpsc::sync_channel::<Ack>(CHANNEL_SIZE);
         let (k, p) = self.k_p.expect("k or p not set");
         let m = k + p;
@@ -188,7 +111,7 @@ impl Bench {
         println!("block num: {block_num}");
         println!("hdd dev path: {hdd_dev_display}");
         println!("ssd dev path: {ssd_dev_display}");
-        println!("ssd block capacity: {ssd_cap}");
+        println!("ssd block capacity: {ssd_block_cap}");
         println!("slice size: {slice_size}");
         println!("test num: {test_load}");
         // data generator
@@ -224,21 +147,17 @@ impl Bench {
             let hdd_storage =
                 HDDStorage::connect_to_dev(hdd_dev_path, NonZeroUsize::new(block_size).unwrap())
                     .unwrap();
-            let ssd_storage = FixedSizeSliceBuf::connect_to_dev_with_evict(
+            let ssd_storage = FixedSizeSliceBuf::connect_to_dev(
                 ssd_dev_path,
                 NonZeroUsize::new(block_size).unwrap(),
-                MostModifiedStripeEvict::new(
-                    NonZeroUsize::new(m).unwrap(),
-                    NonZeroUsize::new(ssd_cap).unwrap(),
-                ),
+                NonZeroUsize::new(ssd_cap).unwrap(),
             )
             .unwrap();
             let mut duration = std::time::Duration::ZERO;
             let mut cnt = 0_usize;
-            let update_ctx = UpdateCtx::<ReedSolomon, MostModifiedStripeEvict> {
+            let update_ctx = UpdateCtx::<ReedSolomon> {
                 hdd_storage,
                 block_size,
-                slice_buf: ssd_storage,
                 ec,
             };
             while let Ok(UpdateRequest {
@@ -248,8 +167,7 @@ impl Bench {
             }) = update_consumer.recv()
             {
                 let epoch = std::time::Instant::now();
-                let evict = update_ctx
-                    .slice_buf
+                let evict = ssd_storage
                     .push_slice(block_id, offset, slice_data.as_slice())
                     .unwrap();
                 if let Some(BufferEviction {
@@ -258,8 +176,7 @@ impl Bench {
                 }) = evict
                 {
                     debug_assert_eq!(size, block_size);
-                    let (stripe_id, updates) = fetch_stripe(&update_ctx, block_id, slices);
-                    do_update(&update_ctx, stripe_id, updates);
+                    do_update(&update_ctx, block_id, slices);
                 };
                 let elapsed = epoch.elapsed();
                 duration += elapsed;
@@ -270,17 +187,16 @@ impl Bench {
             while let Some(BufferEviction {
                 block_id,
                 data: PartialBlock { size, slices },
-            }) = update_ctx.slice_buf.pop()
+            }) = ssd_storage.pop()
             {
                 let epoch = std::time::Instant::now();
                 debug_assert_eq!(size, block_size);
-                let (stripe_id, updates) = fetch_stripe(&update_ctx, block_id, slices);
-                do_update(&update_ctx, stripe_id, updates);
+                do_update(&update_ctx, block_id, slices);
                 duration += epoch.elapsed();
                 cnt += 1;
                 ack_producer.send(Ack()).unwrap();
                 buffer_len_updater.store(
-                    ssd_cap - update_ctx.slice_buf.len(),
+                    ssd_cap - ssd_storage.len(),
                     std::sync::atomic::Ordering::SeqCst,
                 );
             }
@@ -289,7 +205,7 @@ impl Bench {
 
         std::thread::spawn(move || {
             (0..test_load)
-                .progress_with_style(crate::cmds::progress_style_template(Some(
+                .progress_with_style(crate::standalone::progress_style_template(Some(
                     "benchmark baseline...",
                 )))
                 .for_each(|_| {
@@ -297,7 +213,7 @@ impl Bench {
                 });
             std::io::stdout().flush().unwrap();
             let bar = indicatif::ProgressBar::new(ssd_cap.try_into().unwrap());
-            bar.set_style(crate::cmds::progress_style_template(Some(
+            bar.set_style(crate::standalone::progress_style_template(Some(
                 "clean up updates buffered in ssd...",
             )));
             while let Ok(_ack) = ack_consumer.recv() {
@@ -326,6 +242,129 @@ impl Bench {
         );
         Ok(())
     }
+
+    fn _legacy_baseline(&self) -> SUResult<()> {
+        const CHANNEL_SIZE: usize = 1024;
+        let (update_producer, update_consumer) =
+            std::sync::mpsc::sync_channel::<UpdateRequest>(CHANNEL_SIZE);
+        let (k, p) = self.k_p.expect("k or p not set");
+        let m = k + p;
+        let block_size = self.block_size.expect("block size not set");
+        let slice_size = self.slice_size.expect("slice size not set");
+        let hdd_dev_path = self.hdd_dev_path.clone().expect("hdd dev path not set");
+        let ssd_dev_path = self.ssd_dev_path.clone().expect("ssd dev path not set");
+        let block_num = self.block_num.expect("block num not set");
+        let ssd_cap = self.ssd_block_cap.expect("ssd block capacity not set");
+        let test_num = self.test_num.expect("test num not set");
+        let ssd_dev_display = dev_display(&ssd_dev_path);
+        let hdd_dev_display = dev_display(&hdd_dev_path);
+        println!("RS({m}, {k})");
+        println!("block size: {block_size}");
+        println!("block num: {block_num}");
+        println!("hdd dev path: {hdd_dev_display}");
+        println!("ssd dev path: {ssd_dev_display}");
+        println!("ssd block capacity: {ssd_cap}");
+        println!("slice size: {slice_size}");
+        println!("test num: {test_num}");
+        print!("benchmark start...");
+        std::io::stdout().flush().unwrap();
+        // data generator
+        let generator_handle = std::thread::spawn(move || {
+            use rand::Rng;
+            (0..test_num).for_each(|_| {
+                let offset = rand::thread_rng().gen_range(0..(block_size - slice_size));
+                let block_id = { (0..).map(|_| rand::thread_rng().gen_range(0..block_num)) }
+                    .find(|id| (0..k).contains(&(*id % m)))
+                    .unwrap();
+                let slice_data = rand::thread_rng()
+                    .sample_iter(rand::distributions::Standard)
+                    .take(slice_size)
+                    .collect::<Vec<_>>();
+                update_producer
+                    .send(UpdateRequest {
+                        slice_data,
+                        block_id,
+                        offset,
+                    })
+                    .unwrap();
+            });
+        });
+        // data encoder
+        let encoder_handle = std::thread::spawn(move || {
+            let ec =
+                ReedSolomon::from_k_p(NonZeroUsize::new(k).unwrap(), NonZeroUsize::new(p).unwrap());
+            let hdd_storage =
+                HDDStorage::connect_to_dev(hdd_dev_path, NonZeroUsize::new(block_size).unwrap())
+                    .unwrap();
+            let ssd_storage = SSDStorage::connect_to_dev(
+                ssd_dev_path,
+                NonZeroUsize::new(block_size).unwrap(),
+                NonZeroUsize::new(ssd_cap).unwrap(),
+                hdd_storage,
+            )
+            .unwrap();
+            let mut duration = std::time::Duration::ZERO;
+            let mut cnt = 0_usize;
+            while let Ok(UpdateRequest {
+                slice_data,
+                block_id,
+                offset,
+            }) = update_consumer.recv()
+            {
+                let epoch = std::time::Instant::now();
+                let mut buf = BytesMut::zeroed(block_size * (1 + p));
+                let mut source = buf.split_to(block_size);
+                ssd_storage
+                    .get_block(block_id, &mut source)
+                    .unwrap()
+                    .unwrap_or_else(|| panic!("block {block_id} not found"));
+                let source = Block::from(source);
+                let parity = (k..m)
+                    .map(|i| {
+                        let id = block_id - block_id % m + i;
+                        let mut parity = buf.split_to(block_size);
+                        ssd_storage.get_block(id, &mut parity).unwrap().unwrap();
+                        Block::from(parity)
+                    })
+                    .collect::<Vec<_>>();
+                let mut partial_stripe = PartialStripe::make_absent_from_k_p(
+                    NonZeroUsize::new(k).unwrap(),
+                    NonZeroUsize::new(p).unwrap(),
+                    NonZeroUsize::new(block_size).unwrap(),
+                );
+                partial_stripe.replace_block(block_id % m, Some(source));
+                parity.into_iter().zip(k..m).for_each(|(parity, idx)| {
+                    partial_stripe.replace_block(idx, Some(parity));
+                });
+                ec.delta_update(&slice_data, block_id % m, offset, &mut partial_stripe)
+                    .unwrap();
+                partial_stripe.iter_present().for_each(|(id, block)| {
+                    let id = block_id - block_id % m + id;
+                    ssd_storage
+                        .put_slice(id, offset, &block[offset..offset + slice_data.len()])
+                        .unwrap()
+                        .unwrap();
+                });
+                let elapsed = epoch.elapsed();
+                duration += elapsed;
+                cnt += 1;
+            }
+            (duration, cnt)
+        });
+        generator_handle.join().unwrap();
+        let (duration, cnt) = encoder_handle.join().unwrap();
+        println!("done");
+        println!(
+            "benchmarked {test_num} updates request in {}s{}ms",
+            duration.as_secs(),
+            duration.as_millis()
+        );
+        println!(
+            "OPS: {}",
+            cnt / usize::try_from(duration.as_secs()).unwrap()
+        );
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -335,14 +374,11 @@ mod test {
     use bytes::BytesMut;
 
     use crate::{
-        bench::{
-            merge_stripe::{do_update, fetch_stripe},
-            UpdateRequest,
-        },
         erasure_code::{Block, ErasureCode, ReedSolomon, Stripe},
+        standalone::bench::{baseline::do_update, UpdateRequest},
         storage::{
-            BlockId, BlockStorage, BufferEviction, FixedSizeSliceBuf, HDDStorage,
-            MostModifiedStripeEvict, PartialBlock, SliceBuffer, SliceOpt,
+            BlockId, BlockStorage, BufferEviction, FixedSizeSliceBuf, HDDStorage, PartialBlock,
+            SliceBuffer, SliceOpt,
         },
     };
 
@@ -361,7 +397,7 @@ mod test {
     fn test_do_update() {
         let ssd_dev = tempfile::tempdir().unwrap();
         let hdd_dev = tempfile::tempdir().unwrap();
-        crate::data_builder::DataBuilder::new()
+        crate::standalone::data_builder::DataBuilder::new()
             .block_num(BLOCK_NUM)
             .block_size(BLOCK_SIZE)
             .hdd_dev_path(hdd_dev.path())
@@ -380,15 +416,6 @@ mod test {
                 NonZeroUsize::new(EC_K).unwrap(),
                 NonZeroUsize::new(EC_P).unwrap(),
             ),
-            slice_buf: FixedSizeSliceBuf::connect_to_dev_with_evict(
-                ssd_dev.path().to_path_buf(),
-                NonZeroUsize::new(BLOCK_SIZE).unwrap(),
-                MostModifiedStripeEvict::new(
-                    NonZeroUsize::new(EC_M).unwrap(),
-                    NonZeroUsize::new(SSD_BLOCK_CAP * BLOCK_SIZE).unwrap(),
-                ),
-            )
-            .unwrap(),
         };
         let mut block_ref = (0..BLOCK_NUM)
             .map(|block_id| {
@@ -442,8 +469,7 @@ mod test {
                 };
             });
             assert_eq!(off, BLOCK_SIZE);
-            let (stripe_id, updates) = fetch_stripe(&update_ctx, block_id, update_slices);
-            do_update(&update_ctx, stripe_id, updates);
+            do_update(&update_ctx, block_id, update_slices);
         };
         for UpdateRequest {
             slice_data,

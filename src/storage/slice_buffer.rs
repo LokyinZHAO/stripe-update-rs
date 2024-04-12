@@ -111,7 +111,7 @@ where
             .map(|(id, record_index)| (record_index, id))
             .collect::<Vec<_>>();
         segs.sort_unstable_by_key(|(record_index, _)| *record_index);
-        debug_assert!(segs.iter().enumerate().all(|(i, (idx, _))| i == *idx));
+        assert!(segs.iter().enumerate().all(|(i, (idx, _))| i == *idx));
         segs.iter().for_each(|(_record_index, seg_id)| {
             let mut slice_buf = buf.split_to(SEG_SIZE);
             f.read_exact(&mut slice_buf).unwrap();

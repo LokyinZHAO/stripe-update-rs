@@ -2,5 +2,9 @@
     "cSpell.words": [
         "dryrun",
         "uncategorized"
-    ]
+    ],
+    "rust-analyzer.linkedProjects": [
+        "./Cargo.toml"
+    ],
+    "rust-analyzer.showUnlinkedFileNotification": false,
 }

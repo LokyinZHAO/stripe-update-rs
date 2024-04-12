@@ -106,7 +106,7 @@ impl Bench {
         let mut ssd_hit_cnt: usize = 0;
         let mut evictions = (0..test_num)
             .progress()
-            .with_style(crate::cmds::progress_style_template(Some(
+            .with_style(crate::standalone::progress_style_template(Some(
                 "dry run trace...",
             )))
             .filter_map(|_| {

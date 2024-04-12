@@ -33,6 +33,18 @@ impl Block {
     }
 }
 
+impl From<Block> for Vec<u8> {
+    fn from(value: Block) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<Block> for bytes::Bytes {
+    fn from(value: Block) -> Self {
+        value.0.freeze()
+    }
+}
+
 impl From<BytesMut> for Block {
     fn from(value: BytesMut) -> Self {
         Self(value)

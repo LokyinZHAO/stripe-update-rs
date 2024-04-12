@@ -25,7 +25,11 @@ impl HDDStorage {
     ///
     /// # Error
     /// [`SUError::Io(std::io::ErrorKind::NotFound)`] if `dev_path` not existing
-    pub fn connect_to_dev(dev_path: PathBuf, block_size: NonZeroUsize) -> SUResult<Self> {
+    pub fn connect_to_dev(
+        dev_path: impl Into<PathBuf>,
+        block_size: NonZeroUsize,
+    ) -> SUResult<Self> {
+        let dev_path: PathBuf = dev_path.into();
         if !dev_path.exists() {
             return Err(SUError::Io(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
@@ -55,6 +59,11 @@ impl HDDStorage {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(SUError::Io(e)),
         }
+    }
+
+    /// Get the path of the device root
+    pub fn get_dev_root(&self) -> &std::path::Path {
+        &self.dev
     }
 
     /// Create a new block file, guaranteed to be new and with block size

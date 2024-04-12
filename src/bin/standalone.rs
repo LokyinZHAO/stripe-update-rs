@@ -10,9 +10,9 @@ fn main() {
 
 fn build_data(config_path: &std::path::Path, purge: bool) {
     stripe_update::config::init_config_toml(config_path);
-    stripe_update::config::validate_config();
+    stripe_update::config::validate_standalone_config();
     use stripe_update::config;
-    stripe_update::data_builder::DataBuilder::new()
+    stripe_update::standalone::data_builder::DataBuilder::new()
         .block_num(config::block_num())
         .block_size(config::block_size())
         .hdd_dev_path(config::hdd_dev_path())
@@ -27,8 +27,8 @@ fn build_data(config_path: &std::path::Path, purge: bool) {
 fn benchmark(config_path: &std::path::Path, manner: Manner) {
     use stripe_update::config;
     stripe_update::config::init_config_toml(config_path);
-    stripe_update::config::validate_config();
-    stripe_update::bench::Bench::new()
+    stripe_update::config::validate_standalone_config();
+    stripe_update::standalone::bench::Bench::new()
         .block_num(config::block_num())
         .block_size(config::block_size())
         .hdd_dev_path(config::hdd_dev_path())
@@ -46,8 +46,8 @@ fn benchmark(config_path: &std::path::Path, manner: Manner) {
 fn cleanup(config_path: &std::path::Path, ssd: bool, hdd: bool) {
     use stripe_update::config;
     stripe_update::config::init_config_toml(config_path);
-    stripe_update::config::validate_config();
-    let mut cleaner = stripe_update::clean::Cleaner::new();
+    stripe_update::config::validate_standalone_config();
+    let mut cleaner = stripe_update::standalone::clean::Cleaner::new();
     if ssd {
         cleaner.ssd_dev_path(config::ssd_dev_path());
     }
@@ -60,10 +60,10 @@ fn cleanup(config_path: &std::path::Path, ssd: bool, hdd: bool) {
 }
 
 use clap::Subcommand;
-use stripe_update::bench::Manner;
+use stripe_update::standalone::bench::Manner;
 
 #[derive(Debug, clap::Parser)]
-#[command(name = "supg")]
+#[command(name = "standalone")]
 struct Cli {
     #[command(subcommand)]
     cmd: Commands,

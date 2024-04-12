@@ -147,7 +147,7 @@ impl Response {
         if let redis::Value::Bulk(value) = value {
             let value = value.get(1).expect("bad redis value");
             if let redis::Value::Data(bin_ser) = value {
-                let mut request: Response = bincode::deserialize(&bin_ser).expect("serde error");
+                let mut request: Response = bincode::deserialize(bin_ser).expect("serde error");
                 if let Some(id) = request.head.as_ref().ok().and_then(Ack::get_payload_id) {
                     request.payload = PayloadData::fetch_from_redis(id, conn)?;
                 }

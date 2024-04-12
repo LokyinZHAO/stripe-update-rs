@@ -68,7 +68,7 @@ impl Request {
         if let redis::Value::Bulk(value) = value {
             let value = value.get(1).expect("bad redis value");
             if let redis::Value::Data(value) = value {
-                let mut request: Request = bincode::deserialize(&value).expect("serde error");
+                let mut request: Request = bincode::deserialize(value).expect("serde error");
                 if let Some(id) = request.head.get_payload_id() {
                     request.payload = PayloadData::fetch_from_redis(id, conn)?;
                 }

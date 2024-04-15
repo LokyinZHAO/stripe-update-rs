@@ -3,7 +3,6 @@ use crate::SUResult;
 mod evict;
 mod hdd_storage;
 mod slice_buffer;
-mod ssd_storage;
 mod utility;
 
 pub use evict::EvictStrategySlice;
@@ -12,7 +11,6 @@ pub use evict::MostModifiedStripeEvict;
 pub use evict::NonEvict;
 pub use hdd_storage::HDDStorage;
 pub use slice_buffer::FixedSizeSliceBuf;
-pub use ssd_storage::SSDStorage;
 
 pub type BlockId = usize;
 

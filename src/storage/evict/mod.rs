@@ -2,13 +2,11 @@ use std::ops::Range;
 
 use super::BlockId;
 
-mod lru_evict;
 mod most_modified_block;
 mod most_modified_stripe;
 mod non_evict;
 mod range_set;
 
-pub use lru_evict::LruEvict;
 pub use most_modified_block::MostModifiedBlockEvict;
 pub use most_modified_stripe::MostModifiedStripeEvict;
 pub use non_evict::NonEvict;

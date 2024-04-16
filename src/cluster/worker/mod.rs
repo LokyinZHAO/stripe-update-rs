@@ -267,10 +267,10 @@ fn do_persist_update(
     ssd_buf: &mut FixedSizeSliceBuf<impl EvictStrategySlice>,
     block_id: BlockId,
 ) -> SUResult<Response> {
-    eprintln!("[DEBUG] persist update for block {block_id}");
+    log::debug!("persist update for block {block_id}");
     let response = ssd_buf.pop_one(block_id);
     if response.is_none() {
-        eprintln!("[DEBUG] buffer for block id {block_id} not found");
+        log::debug!("buffer for block id {block_id} not found");
         return Ok(Response::nak(
             task_id,
             format!("buffer slice for block {block_id} not found"),
@@ -321,7 +321,7 @@ fn do_buffer_update_data(
     ranges: Ranges,
     data: Bytes,
 ) -> SUResult<Response> {
-    eprintln!("[DEBUG] buffer update for block id {block_id}");
+    log::debug!("buffer update for block id {block_id}");
     let mut cursor = 0;
     for range in ranges.to_ranges().iter() {
         let update_slice = &data[cursor..cursor + range.len()];

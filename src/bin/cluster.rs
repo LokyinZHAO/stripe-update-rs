@@ -1,5 +1,6 @@
 fn main() {
     use clap::Parser;
+    env_logger::init();
     let args = Cli::parse();
     match args.cmd {
         Commands::Coordinator { cmd, config } => launch_coordinator(cmd, config),

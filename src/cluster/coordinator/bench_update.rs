@@ -210,9 +210,13 @@ impl super::CoordinatorCmds for BenchUpdate {
         });
 
         ack_thread.join().unwrap()?;
+        log::info!("ack finish");
         request_thread.join().unwrap()?;
-        send_thread.join().unwrap()?;
+        log::info!("request finish");
         core_handler_thread.join().unwrap()?;
+        log::info!("core handler finish");
+        send_thread.join().unwrap()?;
+        log::info!("send finish");
         Ok(())
     }
 }
@@ -446,7 +450,7 @@ fn check_buffer_threshold<EV: EvictStrategySlice, EC: ErasureCode>(
         RequestHead::BufferUpdateData { id, ranges, .. } => {
             let ranges = ranges.to_ranges();
             assert_eq!(ranges.len(), 1, "bad ranges");
-            eprintln!("[DEBUG] update buf: {}", id);
+            log::debug!("update buf: {}", id);
             (*id, ranges.into_iter().next().unwrap())
         }
         _ => unreachable!("bad request"),
@@ -490,8 +494,8 @@ fn handle_eviction<EV: EvictStrategySlice, EC: ErasureCode>(
                 .map(|block_id| evict.pop_with_id(block_id)),
         )
         .collect::<Vec<_>>();
-    eprintln!(
-        "[DEBUG] evict block buf: {}",
+    log::debug!(
+        "evict block buf: {}",
         stripe_ranges
             .iter()
             .zip(source_block_id_range.clone())

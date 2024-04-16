@@ -7,61 +7,22 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'stripe-update'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--lib",
-                    "--package=stripe-update"
-                ],
-                "filter": {
-                    "name": "stripe-update",
-                    "kind": "lib"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
             "name": "Debug executable 'stripe-update'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=stripe-update",
+                    "--bin=standalone",
                     "--package=stripe-update"
                 ],
                 "filter": {
-                    "name": "stripe-update",
+                    "name": "standalone",
                     "kind": "bin"
                 }
             },
             "args": [
-                "benchmark",
-                "-m=baseline",
+                "build-data",
                 "-c=./run_config.toml"
             ],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'stripe-update'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--bin=stripe-update",
-                    "--package=stripe-update"
-                ],
-                "filter": {
-                    "name": "stripe-update",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
             "cwd": "${workspaceFolder}"
         },
         {
@@ -149,6 +110,28 @@
                 "coordinator",
                 "-c=./run_config.toml",
                 "purge"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'cluster coordinator bench-update'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=cluster",
+                    "--package=stripe-update"
+                ],
+                "filter": {
+                    "name": "cluster",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "coordinator",
+                "-c=./run_config.toml",
+                "bench-update"
             ],
             "cwd": "${workspaceFolder}"
         }

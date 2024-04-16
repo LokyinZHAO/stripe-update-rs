@@ -14,14 +14,25 @@ impl Default for Ranges {
     }
 }
 
+impl From<range_collections::RangeSet<[usize; 2]>> for Ranges {
+    fn from(value: range_collections::RangeSet<[usize; 2]>) -> Self {
+        Self(value)
+    }
+}
+
 impl Ranges {
     /// Make an empty range
     fn empty() -> Self {
         Self(range_collections::RangeSet::empty())
     }
 
+    /// Make a range from a single range
+    fn new(range: std::ops::Range<usize>) -> Self {
+        Self(range_collections::RangeSet::new(smallvec::smallvec![range.start, range.end]).unwrap())
+    }
+
     /// Get a vector of existing ranges
-    fn to_ranges(&self) -> Vec<std::ops::Range<usize>> {
+    fn to_ranges(&self) -> smallvec::SmallVec<[std::ops::Range<usize>; 1]> {
         self.0
             .boundaries()
             .chunks_exact(2)

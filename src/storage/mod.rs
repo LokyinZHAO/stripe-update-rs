@@ -9,13 +9,14 @@ pub use evict::EvictStrategySlice;
 pub use evict::MostModifiedBlockEvict;
 pub use evict::MostModifiedStripeEvict;
 pub use evict::NonEvict;
+pub use evict::RangeSet;
 pub use hdd_storage::HDDStorage;
 pub use slice_buffer::FixedSizeSliceBuf;
 
 pub type BlockId = usize;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct StripeId(usize); // use new type pattern to avoid confusion with BlockId
+pub struct StripeId(usize);
 impl From<usize> for StripeId {
     fn from(value: usize) -> Self {
         StripeId(value)

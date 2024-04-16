@@ -7,10 +7,11 @@ use std::{
 
 use bytes::BytesMut;
 use indicatif::ProgressIterator;
+use itertools::Itertools;
 use range_collections::{RangeSet, RangeSet2};
 
 use crate::{
-    erasure_code::{Block, ErasureCode, PartialStripe, ReedSolomon, Stripe},
+    erasure_code::{Block, ErasureCode, PartialStripe, ReedSolomon},
     standalone::bench::UpdateRequest,
     standalone::dev_display,
     storage::{
@@ -67,7 +68,7 @@ fn do_update<EC: ErasureCode, EV: EvictStrategySlice>(
     }: &UpdateCtx<EC, EV>,
     stripe_id: StripeId,
     stripe_update_slices: Vec<Option<Vec<SliceOpt>>>,
-) {
+) -> SUResult<()> {
     let k = ec.k();
     let block_size = *block_size;
     let p = ec.p();
@@ -134,7 +135,23 @@ fn do_update<EC: ErasureCode, EV: EvictStrategySlice>(
     });
 
     if is_full_update {
-        let mut stripe = Stripe::try_from(partial_stripe).unwrap();
+        // modify the stripe in place
+        let mut stripe = crate::erasure_code::Stripe::try_from(partial_stripe).unwrap();
+        stripe
+            .iter_mut_source()
+            .zip_eq(stripe_update_slices)
+            .for_each(|(block, updates)| {
+                if let Some(updates) = updates {
+                    let mut offset = 0;
+                    updates.iter().for_each(|update| match update {
+                        SliceOpt::Present(slice) => {
+                            block[offset..offset + slice.len()].copy_from_slice(slice);
+                            offset += slice.len();
+                        }
+                        SliceOpt::Absent(size) => offset += size,
+                    });
+                }
+            });
         ec.encode_stripe(&mut stripe).unwrap();
         stripe
             .iter_source()
@@ -149,6 +166,27 @@ fn do_update<EC: ErasureCode, EV: EvictStrategySlice>(
                 })
             });
     } else {
+        stripe_update_slices
+            .into_iter()
+            .enumerate()
+            .filter(|(_, updates)| updates.is_some())
+            .try_for_each(|(idx, updates)| -> SUResult<()> {
+                let updates = updates.unwrap();
+                let mut offset = 0;
+                updates.iter().try_for_each(|update| -> SUResult<()> {
+                    match update {
+                        SliceOpt::Present(slice) => {
+                            ec.delta_update(&slice, idx, offset, &mut partial_stripe)?;
+                            offset += slice.len();
+                        }
+                        SliceOpt::Absent(size) => {
+                            offset += size;
+                        }
+                    }
+                    Ok(())
+                })?;
+                Ok(())
+            })?;
         partial_stripe.iter_present().for_each(|(idx, block_data)| {
             let block_id = stripe_id.into_inner() * m + idx;
             union_range.iter().for_each(|range| {
@@ -159,6 +197,7 @@ fn do_update<EC: ErasureCode, EV: EvictStrategySlice>(
             })
         });
     }
+    Ok(())
 }
 
 impl Bench {
@@ -259,7 +298,7 @@ impl Bench {
                 {
                     debug_assert_eq!(size, block_size);
                     let (stripe_id, updates) = fetch_stripe(&update_ctx, block_id, slices);
-                    do_update(&update_ctx, stripe_id, updates);
+                    do_update(&update_ctx, stripe_id, updates).unwrap();
                 };
                 let elapsed = epoch.elapsed();
                 duration += elapsed;
@@ -275,7 +314,7 @@ impl Bench {
                 let epoch = std::time::Instant::now();
                 debug_assert_eq!(size, block_size);
                 let (stripe_id, updates) = fetch_stripe(&update_ctx, block_id, slices);
-                do_update(&update_ctx, stripe_id, updates);
+                do_update(&update_ctx, stripe_id, updates).expect("fail to do update");
                 duration += epoch.elapsed();
                 cnt += 1;
                 ack_producer.send(Ack()).unwrap();
@@ -444,7 +483,7 @@ mod test {
             });
             assert_eq!(off, BLOCK_SIZE);
             let (stripe_id, updates) = fetch_stripe(&update_ctx, block_id, update_slices);
-            do_update(&update_ctx, stripe_id, updates);
+            do_update(&update_ctx, stripe_id, updates).unwrap();
         };
         for UpdateRequest {
             slice_data,

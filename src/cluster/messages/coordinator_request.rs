@@ -43,6 +43,36 @@ impl Request {
             Some(payload),
         )
     }
+
+    pub fn retrieve_slice(id: BlockId, ranges: Ranges) -> Self {
+        Self::assemble(Head::RetrieveData { id, ranges }, None)
+    }
+
+    pub fn persist_update(id: BlockId) -> Self {
+        Self::assemble(Head::PersistUpdate { id }, None)
+    }
+
+    pub fn buffer_update_data(id: BlockId, ranges: Ranges, payload: Bytes) -> Self {
+        Self::assemble(
+            Head::BufferUpdateData {
+                id,
+                ranges,
+                payload: PayloadID::assign(),
+            },
+            Some(payload),
+        )
+    }
+
+    pub fn update(id: BlockId, ranges: Ranges, payload: Bytes) -> Self {
+        Self::assemble(
+            Head::Update {
+                id,
+                ranges,
+                payload: PayloadID::assign(),
+            },
+            Some(payload),
+        )
+    }
 }
 
 impl Request {
@@ -118,7 +148,7 @@ pub enum Head {
     StoreBlock { id: BlockId, payload: PayloadID },
     /// Retrieve data from a block, and response with slice data
     RetrieveData { id: BlockId, ranges: Ranges },
-    /// Persist buffered updates to hdd, and respond with buffered data
+    /// Persist buffered updates to hdd, and respond with update delta data
     PersistUpdate { id: BlockId },
     /// Buffer updates of a data block
     BufferUpdateData {
@@ -126,8 +156,8 @@ pub enum Head {
         ranges: Ranges,
         payload: PayloadID,
     },
-    /// Update parity block
-    UpdateParity {
+    /// Update block
+    Update {
         id: BlockId,
         ranges: Ranges,
         payload: PayloadID,
@@ -150,7 +180,7 @@ impl Head {
     pub fn has_payload(&self) -> bool {
         matches!(
             self,
-            Self::StoreBlock { .. } | Self::BufferUpdateData { .. } | Self::UpdateParity { .. }
+            Self::StoreBlock { .. } | Self::BufferUpdateData { .. } | Self::Update { .. }
         )
     }
 
@@ -158,7 +188,7 @@ impl Head {
         match self {
             Self::StoreBlock { payload, .. } => Some(*payload),
             Self::BufferUpdateData { payload, .. } => Some(*payload),
-            Self::UpdateParity { payload, .. } => Some(*payload),
+            Self::Update { payload, .. } => Some(*payload),
             _ => None,
         }
     }

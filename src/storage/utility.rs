@@ -67,6 +67,7 @@ pub fn block_id_to_path(dev_root: impl Into<PathBuf>, block_id: BlockId) -> Path
 ///
 /// # Panics
 /// If the path is not constructed by [`block_id_to_path`]
+#[allow(dead_code)]
 pub fn block_path_to_id(block_path: &Path) -> BlockId {
     const ERR_STR: &str = "invalid block path";
     let mut path = block_path.to_path_buf();

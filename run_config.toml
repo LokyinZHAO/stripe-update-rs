@@ -1,15 +1,15 @@
 EcK = 4
 EcP = 2
 BlockSize = "1MiB"
-BlockNum = 2024
-SsdBlockCapacity = 512
+BlockNum = 512
+SsdBlockCapacity = 1024_00
 TestNum = 8_000
 SliceSize = "4KiB"
 OutDirPath = "./out/"
 
-[StandAlone]
-SsdDevPath = "./data/cluster/ssd_dev"
-HddDevPath = "./data/cluster/hdd_dev"
+[Standalone]
+SsdDevPath = "./data/standalone/ssd_dev"
+HddDevPath = "./data/standalone/hdd_dev"
 
 [Cluster]
 RedisUrl = "redis://127.0.0.1"

@@ -44,3 +44,9 @@ impl std::fmt::Display for TaskID {
         self.0.fmt(f)
     }
 }
+
+impl std::hash::Hash for TaskID {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0 .0.hash(state)
+    }
+}

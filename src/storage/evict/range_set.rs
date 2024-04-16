@@ -62,6 +62,10 @@ impl RangeSet {
             .map(|bound| bound[0]..bound[1])
             .collect()
     }
+
+    pub fn into_inner(self) -> Ranges {
+        self.ranges
+    }
 }
 
 impl std::ops::Deref for RangeSet {

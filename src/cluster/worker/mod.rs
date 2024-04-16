@@ -205,8 +205,8 @@ fn worker_thread_handle(
             RequestHead::BufferUpdateData { id, ranges, .. } => {
                 do_buffer_update_data(task_id, &mut ssd_buf, id, ranges, payload.unwrap())
             }
-            RequestHead::UpdateParity { id, ranges, .. } => {
-                do_update_parity(task_id, &mut hdd_store, id, ranges, payload.unwrap())
+            RequestHead::Update { id, ranges, .. } => {
+                do_update(task_id, &mut hdd_store, id, ranges, payload.unwrap())
             }
             RequestHead::FlushBuf => do_flush_buf(task_id, worker_id, &mut ssd_buf),
             RequestHead::DropStore => do_drop_store(task_id, worker_id, &mut hdd_store),
@@ -267,11 +267,13 @@ fn do_persist_update(
     ssd_buf: &mut FixedSizeSliceBuf<impl EvictStrategySlice>,
     block_id: BlockId,
 ) -> SUResult<Response> {
+    eprintln!("[DEBUG] persist update for block {block_id}");
     let response = ssd_buf.pop_one(block_id);
     if response.is_none() {
+        eprintln!("[DEBUG] buffer for block id {block_id} not found");
         return Ok(Response::nak(
             task_id,
-            format!("block {block_id} not found"),
+            format!("buffer slice for block {block_id} not found"),
         ));
     }
     let eviction = response.unwrap();
@@ -319,6 +321,7 @@ fn do_buffer_update_data(
     ranges: Ranges,
     data: Bytes,
 ) -> SUResult<Response> {
+    eprintln!("[DEBUG] buffer update for block id {block_id}");
     let mut cursor = 0;
     for range in ranges.to_ranges().iter() {
         let update_slice = &data[cursor..cursor + range.len()];
@@ -338,7 +341,7 @@ fn do_buffer_update_data(
     Ok(Response::buffer_update_data(task_id))
 }
 
-fn do_update_parity(
+fn do_update(
     task_id: TaskID,
     hdd_store: &mut HDDStorage,
     id: BlockId,
@@ -347,7 +350,20 @@ fn do_update_parity(
 ) -> SUResult<Response> {
     let mut cursor = 0;
     for range in ranges.to_ranges().iter() {
-        let slice_data = &data[cursor..cursor + range.len()];
+        // let slice_data = &data[cursor..cursor + range.len()];
+        let slice_data = data.get(cursor..cursor + range.len());
+        if slice_data.is_none() {
+            let e = SUError::out_of_range(
+                (file!(), line!(), column!()),
+                Some(0..data.len()),
+                cursor..cursor + range.len(),
+            );
+            return Ok(Response::nak(
+                task_id,
+                format!("fail to update block {id}: {e}"),
+            ));
+        }
+        let slice_data = slice_data.unwrap();
         let result = hdd_store.put_slice(id, range.start, slice_data);
         cursor += range.len();
         match result {
@@ -361,7 +377,7 @@ fn do_update_parity(
             Err(e) => return Err(e),
         }
     }
-    Ok(Response::update_parity(task_id))
+    Ok(Response::update(task_id))
 }
 
 fn do_flush_buf(

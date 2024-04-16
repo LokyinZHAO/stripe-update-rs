@@ -70,6 +70,9 @@ fn launch_coordinator(cmd: CoordinatorCmds, config: PathBuf) {
             NonZeroUsize::new(config::worker_num().expect("worker num not set in config file"))
                 .unwrap(),
         )
+        .slice_size(NonZeroUsize::new(config::slice_size()).unwrap())
+        .test_load(NonZeroUsize::new(config::test_load()).unwrap())
+        .buf_capacity(NonZeroUsize::new(config::ssd_block_capacity()).unwrap())
         .k_p(
             NonZeroUsize::new(ec_k()).unwrap(),
             NonZeroUsize::new(config::ec_p()).unwrap(),
@@ -80,7 +83,9 @@ fn launch_coordinator(cmd: CoordinatorCmds, config: PathBuf) {
         CoordinatorCmds::BuildData => BuildData::try_from(builder)
             .map(Box::new)
             .and_then(Cmds::exec),
-        CoordinatorCmds::BenchUpdate => todo!(),
+        CoordinatorCmds::BenchUpdate => BenchUpdate::try_from(builder)
+            .map(Box::new)
+            .and_then(Cmds::exec),
         CoordinatorCmds::KillAll => KillAll::try_from(builder)
             .map(Box::new)
             .and_then(Cmds::exec),

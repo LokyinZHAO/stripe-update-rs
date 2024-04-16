@@ -35,7 +35,7 @@ impl Response {
     pub fn retrieve_slice(task_id: TaskID, payload: Bytes) -> Self {
         Self::assemble_ack(
             task_id,
-            Ack::RetrieveSlice {
+            Ack::RetrieveData {
                 payload: PayloadID::assign(),
             },
             Some(payload),
@@ -57,8 +57,8 @@ impl Response {
         Self::assemble_ack(task_id, Ack::BufferUpdateData, None)
     }
 
-    pub fn update_parity(task_id: TaskID) -> Self {
-        Self::assemble_ack(task_id, Ack::UpdateParity, None)
+    pub fn update(task_id: TaskID) -> Self {
+        Self::assemble_ack(task_id, Ack::Update, None)
     }
 
     pub fn flush_buf(task_id: TaskID, worker_id: WorkerID) -> Self {
@@ -83,13 +83,13 @@ pub enum Ack {
     /// Create a new block
     StoreBlock,
     /// Retrieve data from a block, with slice data payload as response
-    RetrieveSlice { payload: PayloadID },
-    /// Persist buffered updates to hdd, with buffered updates payload as response
+    RetrieveData { payload: PayloadID },
+    /// Persist buffered updates to hdd, with updates delta payload as response
     PersistUpdate { ranges: Ranges, payload: PayloadID },
     /// Buffer Updates of a block
     BufferUpdateData,
-    /// Update parity block
-    UpdateParity,
+    /// Update block
+    Update,
     /// Clean up all the buffered slices
     FlushBuf { worker_id: WorkerID },
     /// Delete all the blocks
@@ -102,15 +102,12 @@ pub enum Ack {
 
 impl Ack {
     fn has_payload(&self) -> bool {
-        matches!(
-            self,
-            Self::RetrieveSlice { .. } | Self::PersistUpdate { .. }
-        )
+        matches!(self, Self::RetrieveData { .. } | Self::PersistUpdate { .. })
     }
 
     fn get_payload_id(&self) -> Option<PayloadID> {
         match self {
-            Self::RetrieveSlice { payload, .. } => Some(*payload),
+            Self::RetrieveData { payload, .. } => Some(*payload),
             Self::PersistUpdate { payload, .. } => Some(*payload),
             _ => None,
         }
@@ -138,8 +135,11 @@ impl Response {
     }
 
     pub fn push_to_redis(&self, conn: &mut redis::Connection, key: &str) -> SUResult<()> {
-        if let Some(payload) = self.head.as_ref().ok().and_then(Ack::get_payload_id) {
-            self.payload.push_to_redis(payload, conn)?;
+        if let Some(payload_id) = self.head.as_ref().ok().and_then(Ack::get_payload_id) {
+            self.payload.push_to_redis(payload_id, conn)?;
+        }
+        if let Err(Nak(id)) = self.head {
+            self.payload.push_to_redis(id, conn)?;
         }
         let bin_ser = bincode::serialize(self).expect("serde error");
         Ok(conn.rpush(key, bin_ser)?)
@@ -152,6 +152,9 @@ impl Response {
             if let redis::Value::Data(bin_ser) = value {
                 let mut request: Response = bincode::deserialize(bin_ser).expect("serde error");
                 if let Some(id) = request.head.as_ref().ok().and_then(Ack::get_payload_id) {
+                    request.payload = PayloadData::fetch_from_redis(id, conn)?;
+                }
+                if let Err(Nak(id)) = request.head {
                     request.payload = PayloadData::fetch_from_redis(id, conn)?;
                 }
                 return Ok(request);

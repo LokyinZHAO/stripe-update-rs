@@ -35,6 +35,10 @@ impl PayloadData {
         self.0.unwrap()
     }
 
+    // pub fn as_ref(&self) -> Option<&Bytes> {
+    //     self.0.as_ref()
+    // }
+
     pub fn fetch_from_redis(id: PayloadID, conn: &mut redis::Connection) -> SUResult<Self> {
         let value: redis::Value = conn.get_del(id)?;
         let data = match value {
@@ -53,7 +57,7 @@ impl PayloadData {
     pub fn push_to_redis(&self, id: PayloadID, conn: &mut redis::Connection) -> SUResult<()> {
         let data = self.0.as_ref().unwrap().as_ref();
         // TODO: performance issue: redis makes a copy of the data
-        conn.set_options(
+        let _: () = conn.set_options(
             id,
             data,
             redis::SetOptions::default().conditional_set(redis::ExistenceCheck::NX),

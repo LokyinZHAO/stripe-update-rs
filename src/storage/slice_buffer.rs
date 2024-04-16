@@ -33,12 +33,14 @@ where
     E: std::fmt::Debug,
 {
     pub fn cleanup_dev(&self) -> SUResult<()> {
-        for entry in self.dev_dir.read_dir()?.flatten() {
-            let dir = entry.path();
-            if std::fs::read_dir(dir.as_path())?.count() == 0 {
-                std::fs::remove_dir(dir.as_path())?;
-            }
-        }
+        std::fs::remove_dir_all(self.dev_dir.as_path())?;
+        std::fs::create_dir_all(self.dev_dir.as_path())?;
+        // for entry in self.dev_dir.read_dir()?.flatten() {
+        //     let dir = entry.path();
+        //     if std::fs::read_dir(dir.as_path())?.count() == 0 {
+        //         std::fs::remove_dir(dir.as_path())?;
+        //     }
+        // }
         Ok(())
     }
 }

@@ -1,12 +1,15 @@
 use std::{collections::BTreeMap, num::NonZeroUsize};
 
+use itertools::Itertools;
+
 use crate::{config, SUError, SUResult};
 
-// mod bench_update;
+mod bench_update;
 mod build_data;
 mod kill_all;
 mod purge;
 pub mod cmds {
+    pub use super::bench_update::BenchUpdate;
     pub use super::build_data::BuildData;
     pub use super::kill_all::KillAll;
     pub use super::purge::Purge;
@@ -27,8 +30,10 @@ pub struct CoordinatorBuilder {
     block_size: Option<usize>,
     slice_size: Option<usize>,
     block_num: Option<usize>,
+    buf_capacity: Option<usize>,
     worker_num: Option<usize>,
     k_p: Option<(usize, usize)>,
+    test_load: Option<usize>,
 }
 
 impl CoordinatorBuilder {
@@ -47,6 +52,11 @@ impl CoordinatorBuilder {
         self
     }
 
+    pub fn buf_capacity(mut self, size: NonZeroUsize) -> Self {
+        self.buf_capacity = Some(size.get());
+        self
+    }
+
     pub fn block_num(mut self, num: NonZeroUsize) -> Self {
         self.block_num = Some(num.get());
         self
@@ -59,6 +69,11 @@ impl CoordinatorBuilder {
 
     pub fn k_p(mut self, k: NonZeroUsize, p: NonZeroUsize) -> Self {
         self.k_p = Some((k.get(), p.get()));
+        self
+    }
+
+    pub fn test_load(mut self, test_load: NonZeroUsize) -> Self {
+        self.test_load = Some(test_load.get());
         self
     }
 }
@@ -106,6 +121,7 @@ fn broadcast_heartbeat(
             Ok(Ack::HeartBeat { worker_id }) => Some(*worker_id),
             _ => None,
         })
+        .sorted()
         .collect();
     Ok(res)
 }

@@ -211,12 +211,16 @@ impl super::CoordinatorCmds for BenchUpdate {
 
         ack_thread.join().unwrap()?;
         log::info!("ack finish");
-        request_thread.join().unwrap()?;
-        log::info!("request finish");
+        eprintln!("ack finish");
         core_handler_thread.join().unwrap()?;
         log::info!("core handler finish");
+        eprintln!("core handler finish");
         send_thread.join().unwrap()?;
         log::info!("send finish");
+        eprintln!("send finish");
+        request_thread.join().unwrap()?;
+        log::info!("request finish");
+        eprintln!("request finish");
         Ok(())
     }
 }
@@ -364,6 +368,18 @@ fn ack_receiver(
                 unreachable!("bad response")
             }
         };
+    }
+    progress_bar.finish_and_clear();
+    // handle the rest promise
+    while !promise_map.lock().expect("fail to unlock").is_empty() {
+        let response = Response::fetch_from_redis(&mut recv_conn, &response_queue)?;
+        let task_id = response.id;
+        let mut promise_map_lock = promise_map.lock().expect("fail to unlock");
+        let promise = promise_map_lock
+            .remove(&task_id)
+            .expect("promise not found");
+        drop(promise_map_lock);
+        promise.send(response).expect("send response failed");
     }
     println!("done!");
     Ok(())

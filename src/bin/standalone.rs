@@ -88,7 +88,7 @@ enum Commands {
         #[arg(short, long)]
         config: std::path::PathBuf,
         /// bench mark manners
-        #[arg(short, long, default_value_t = Manner::Baseline)]
+        #[arg(short, long)]
         manner: Manner,
     },
     /// Clean up the dev directory

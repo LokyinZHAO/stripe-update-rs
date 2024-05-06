@@ -211,16 +211,12 @@ impl super::CoordinatorCmds for BenchUpdate {
 
         ack_thread.join().unwrap()?;
         log::info!("ack finish");
-        eprintln!("ack finish");
         core_handler_thread.join().unwrap()?;
         log::info!("core handler finish");
-        eprintln!("core handler finish");
         send_thread.join().unwrap()?;
         log::info!("send finish");
-        eprintln!("send finish");
         request_thread.join().unwrap()?;
         log::info!("request finish");
-        eprintln!("request finish");
         Ok(())
     }
 }
@@ -370,7 +366,9 @@ fn ack_receiver(
         };
     }
     progress_bar.finish_and_clear();
+    let mut elapsed = progress_bar.elapsed();
     // handle the rest promise
+    let instant = std::time::Instant::now();
     while !promise_map.lock().expect("fail to unlock").is_empty() {
         let response = Response::fetch_from_redis(&mut recv_conn, &response_queue)?;
         let task_id = response.id;
@@ -381,6 +379,9 @@ fn ack_receiver(
         drop(promise_map_lock);
         promise.send(response).expect("send response failed");
     }
+    elapsed += instant.elapsed();
+    println!("time elapsed: {}s", elapsed.as_secs_f64());
+    println!("OPS: {}", test_load as f64 / elapsed.as_secs_f64());
     println!("done!");
     Ok(())
 }

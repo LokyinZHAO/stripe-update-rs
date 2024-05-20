@@ -9,16 +9,16 @@ OutDirPath = "./out/"
 
 [Standalone]
 SsdDevPath = "./var/standalone/ssd_dev"
-HddDevPath = "./var/standalone/hdd_dev"
+BlobDevPath = "./var/standalone/blob_dev"
 
 [Cluster]
 RedisUrl = "redis://127.0.0.1"
-WorkerNum = 3
+WorkerNum = 6
 Workers = [
-    { SsdDevPath = "./var/cluster/worker-1/ssd_dev", HddDevPath = "./var/cluster/worker-1/hdd_dev" },
-    { SsdDevPath = "./var/cluster/worker-2/ssd_dev", HddDevPath = "./var/cluster/worker-2/hdd_dev" },
-    { SsdDevPath = "./var/cluster/worker-3/ssd_dev", HddDevPath = "./var/cluster/worker-3/hdd_dev" },
-    { SsdDevPath = "./var/cluster/worker-4/ssd_dev", HddDevPath = "./var/cluster/worker-4/hdd_dev" },
-    { SsdDevPath = "./var/cluster/worker-5/ssd_dev", HddDevPath = "./var/cluster/worker-5/hdd_dev" },
-    { SsdDevPath = "./var/cluster/worker-6/ssd_dev", HddDevPath = "./var/cluster/worker-6/hdd_dev" },
+    { SsdDevPath = "./var/cluster/worker-1/ssd_dev", BlobDevPath = "./var/cluster/worker-1/blob_dev" },
+    { SsdDevPath = "./var/cluster/worker-2/ssd_dev", BlobDevPath = "./var/cluster/worker-2/blob_dev" },
+    { SsdDevPath = "./var/cluster/worker-3/ssd_dev", BlobDevPath = "./var/cluster/worker-3/blob_dev" },
+    { SsdDevPath = "./var/cluster/worker-4/ssd_dev", BlobDevPath = "./var/cluster/worker-4/blob_dev" },
+    { SsdDevPath = "./var/cluster/worker-5/ssd_dev", BlobDevPath = "./var/cluster/worker-5/blob_dev" },
+    { SsdDevPath = "./var/cluster/worker-6/ssd_dev", BlobDevPath = "./var/cluster/worker-6/blob_dev" },
 ]

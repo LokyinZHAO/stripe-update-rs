@@ -12,8 +12,8 @@ use crate::{
     standalone::bench::UpdateRequest,
     standalone::dev_display,
     storage::{
-        BlockId, BlockStorage, BufferEviction, FixedSizeSliceBuf, HDDStorage, PartialBlock,
-        SliceBuffer, SliceOpt,
+        BlockId, BlockStorage, BufferEviction, FixedSizeSliceBuf, LocalFileSystemStorage,
+        PartialBlock, SliceBuffer, SliceOpt,
     },
     SUResult,
 };
@@ -21,14 +21,14 @@ use crate::{
 use super::Bench;
 
 struct UpdateCtx<E: ErasureCode> {
-    hdd_storage: HDDStorage,
+    blob_storage: LocalFileSystemStorage,
     block_size: usize,
     ec: E,
 }
 
 fn do_update<E: ErasureCode>(
     UpdateCtx {
-        hdd_storage,
+        blob_storage,
         block_size,
         ec,
     }: &UpdateCtx<E>,
@@ -41,7 +41,7 @@ fn do_update<E: ErasureCode>(
     let m = ec.m();
     let mut buf = BytesMut::zeroed(block_size * (1 + p));
     let mut original_source = buf.split_to(block_size);
-    hdd_storage
+    blob_storage
         .get_block(block_id, &mut original_source)
         .unwrap()
         .unwrap_or_else(|| panic!("block {block_id} not found"));
@@ -63,7 +63,7 @@ fn do_update<E: ErasureCode>(
         .map(|i| {
             let id = block_id - block_id % m + i;
             let mut parity = buf.split_to(block_size);
-            hdd_storage.get_block(id, &mut parity).unwrap().unwrap();
+            blob_storage.get_block(id, &mut parity).unwrap().unwrap();
             Block::from(parity)
         })
         .collect::<Vec<_>>();
@@ -80,7 +80,7 @@ fn do_update<E: ErasureCode>(
         .unwrap();
     partial_stripe.iter_present().for_each(|(id, block)| {
         let id = block_id - block_id % m + id;
-        hdd_storage.put_block(id, block).unwrap();
+        blob_storage.put_block(id, block).unwrap();
     });
 }
 
@@ -95,21 +95,21 @@ impl Bench {
         let m = k + p;
         let block_size = self.block_size.expect("block size not set");
         let slice_size = self.slice_size.expect("slice size not set");
-        let hdd_dev_path = self.hdd_dev_path.clone().expect("hdd dev path not set");
+        let blob_dev_path = self.blob_dev_path.clone().expect("blob dev path not set");
         let ssd_dev_path = self.ssd_dev_path.clone().expect("ssd dev path not set");
         let block_num = self.block_num.expect("block num not set");
         let ssd_block_cap = self.ssd_block_cap.expect("ssd block capacity not set");
         let ssd_cap = ssd_block_cap * block_size;
         let test_load = self.test_num.expect("test num not set");
         let ssd_dev_display = dev_display(&ssd_dev_path);
-        let hdd_dev_display = dev_display(&hdd_dev_path);
+        let blob_dev_display = dev_display(&blob_dev_path);
         if ssd_dev_path.read_dir().unwrap().next().is_some() {
             panic!("ssd dev path: {ssd_dev_display} is not empty");
         }
         println!("RS({m}, {k})");
         println!("block size: {block_size}");
         println!("block num: {block_num}");
-        println!("hdd dev path: {hdd_dev_display}");
+        println!("blob dev path: {blob_dev_display}");
         println!("ssd dev path: {ssd_dev_display}");
         println!("ssd block capacity: {ssd_block_cap}");
         println!("slice size: {slice_size}");
@@ -144,9 +144,11 @@ impl Bench {
         let encoder_handle = std::thread::spawn(move || {
             let ec =
                 ReedSolomon::from_k_p(NonZeroUsize::new(k).unwrap(), NonZeroUsize::new(p).unwrap());
-            let hdd_storage =
-                HDDStorage::connect_to_dev(hdd_dev_path, NonZeroUsize::new(block_size).unwrap())
-                    .unwrap();
+            let blob_storage = LocalFileSystemStorage::connect_to_dev(
+                blob_dev_path,
+                NonZeroUsize::new(block_size).unwrap(),
+            )
+            .unwrap();
             let ssd_storage = FixedSizeSliceBuf::connect_to_dev(
                 ssd_dev_path,
                 NonZeroUsize::new(block_size).unwrap(),
@@ -156,7 +158,7 @@ impl Bench {
             let mut duration = std::time::Duration::ZERO;
             let mut cnt = 0_usize;
             let update_ctx = UpdateCtx::<ReedSolomon> {
-                hdd_storage,
+                blob_storage,
                 block_size,
                 ec,
             };
@@ -254,8 +256,8 @@ mod test {
         erasure_code::{Block, ErasureCode, ReedSolomon, Stripe},
         standalone::bench::{baseline::do_update, UpdateRequest},
         storage::{
-            BlockId, BlockStorage, BufferEviction, FixedSizeSliceBuf, HDDStorage, PartialBlock,
-            SliceBuffer, SliceOpt,
+            BlockId, BlockStorage, BufferEviction, FixedSizeSliceBuf, LocalFileSystemStorage,
+            PartialBlock, SliceBuffer, SliceOpt,
         },
     };
 
@@ -273,18 +275,18 @@ mod test {
     #[test]
     fn test_do_update() {
         let ssd_dev = tempfile::tempdir().unwrap();
-        let hdd_dev = tempfile::tempdir().unwrap();
+        let blob_dev = tempfile::tempdir().unwrap();
         crate::standalone::data_builder::DataBuilder::new()
             .block_num(BLOCK_NUM)
             .block_size(BLOCK_SIZE)
-            .hdd_dev_path(hdd_dev.path())
+            .blob_dev_path(blob_dev.path())
             .purge(true)
             .k_p(EC_K, EC_P)
             .build()
             .unwrap();
         let update_ctx = UpdateCtx {
-            hdd_storage: HDDStorage::connect_to_dev(
-                hdd_dev.path().to_path_buf(),
+            blob_storage: LocalFileSystemStorage::connect_to_dev(
+                blob_dev.path().to_path_buf(),
                 NonZeroUsize::new(BLOCK_SIZE).unwrap(),
             )
             .unwrap(),
@@ -297,7 +299,7 @@ mod test {
         let mut block_ref = (0..BLOCK_NUM)
             .map(|block_id| {
                 let block = update_ctx
-                    .hdd_storage
+                    .blob_storage
                     .get_block_owned(block_id)
                     .unwrap()
                     .unwrap();
@@ -388,23 +390,23 @@ mod test {
                     NonZeroUsize::new(EC_P).unwrap(),
                 );
                 update_ctx.ec.encode_stripe(&mut stripe).unwrap();
-                let hdd_stripe = (0..EC_M)
+                let blob_stripe = (0..EC_M)
                     .map(|idx| {
                         let block_id = idx + stripe_id * EC_M;
                         update_ctx
-                            .hdd_storage
+                            .blob_storage
                             .get_block_owned(block_id)
                             .unwrap()
                             .unwrap()
                     })
                     .map(|block| Block::from(BytesMut::from(block.as_slice())))
                     .collect::<Vec<_>>();
-                let hdd_stripe = Stripe::from_vec(
-                    hdd_stripe,
+                let blob_stripe = Stripe::from_vec(
+                    blob_stripe,
                     NonZeroUsize::new(EC_K).unwrap(),
                     NonZeroUsize::new(EC_P).unwrap(),
                 );
-                (stripe, hdd_stripe)
+                (stripe, blob_stripe)
             })
             .for_each(|(a, b)| assert_eq!(a, b));
     }

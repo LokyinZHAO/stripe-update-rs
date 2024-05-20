@@ -8,7 +8,7 @@ use crate::{standalone::dev_display, SUResult};
 #[derive(Debug, Default)]
 pub struct Cleaner {
     ssd_dev_path: Option<PathBuf>,
-    hdd_dev_path: Option<PathBuf>,
+    blob_dev_path: Option<PathBuf>,
 }
 
 impl Cleaner {
@@ -21,8 +21,8 @@ impl Cleaner {
         self
     }
 
-    pub fn hdd_dev_path(&mut self, hdd_dev_path: impl AsRef<std::path::Path>) -> &mut Self {
-        self.hdd_dev_path = Some(hdd_dev_path.as_ref().to_path_buf());
+    pub fn blob_dev_path(&mut self, blob_dev_path: impl AsRef<std::path::Path>) -> &mut Self {
+        self.blob_dev_path = Some(blob_dev_path.as_ref().to_path_buf());
         self
     }
 
@@ -41,9 +41,9 @@ impl Cleaner {
             purge_dir(dev)?;
             println!("done");
         }
-        if self.hdd_dev_path.is_some() {
-            let dev = self.hdd_dev_path.as_ref().unwrap();
-            print!("purging hdd dev ({})...", dev_display(dev));
+        if self.blob_dev_path.is_some() {
+            let dev = self.blob_dev_path.as_ref().unwrap();
+            print!("purging blob dev ({})...", dev_display(dev));
             purge_dir(dev)?;
             println!("done")
         }

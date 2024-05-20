@@ -1,7 +1,7 @@
 use crate::SUResult;
 
 mod evict;
-mod hdd_storage;
+mod local_fs_storage;
 mod slice_buffer;
 mod utility;
 
@@ -11,7 +11,7 @@ pub use evict::MostModifiedBlockEvict;
 pub use evict::MostModifiedStripeEvict;
 pub use evict::NonEvict;
 pub use evict::RangeSet;
-pub use hdd_storage::HDDStorage;
+pub use local_fs_storage::LocalFileSystemStorage;
 pub use slice_buffer::FixedSizeSliceBuf;
 
 pub type BlockId = usize;
@@ -132,6 +132,8 @@ pub trait SliceStorage {
             .map(|opt| opt.map(|_| data))
     }
 }
+
+trait BlobStore: BlockStorage + SliceStorage {}
 
 pub struct BufferEviction {
     pub block_id: BlockId,

@@ -109,7 +109,9 @@ fn launch_worker(id: usize, config: PathBuf) {
         .id(id)
         .client(config::redis_url().expect("redis url not set in config file"))
         .ssd_dev_path(config::worker_ssd_dev_path(id).expect("ssd dev path not set in config file"))
-        .hdd_dev_path(config::worker_hdd_dev_path(id).expect("hdd dev path not set in config file"))
+        .blob_dev_path(
+            config::worker_blob_dev_path(id).expect("blob dev path not set in config file"),
+        )
         .block_size(NonZeroUsize::new(config::block_size()).unwrap())
         .work()
         .unwrap_or_else(|e| panic!("FATAL ERROR in worker: {e}"))

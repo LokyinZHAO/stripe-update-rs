@@ -14,6 +14,7 @@ pub use most_modified_stripe::MostModifiedStripeEvict;
 pub use non_evict::NonEvict;
 pub use range_set::RangeSet;
 
+#[allow(unused)]
 pub trait EvictStrategy {
     type Item;
     /// Return `true` if the evict contains an element equal to `item`, otherwise false

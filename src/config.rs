@@ -21,7 +21,7 @@ struct Config {
 #[serde(rename_all = "PascalCase")]
 struct StandaloneConfig {
     ssd_dev_path: std::path::PathBuf,
-    hdd_dev_path: std::path::PathBuf,
+    blob_dev_path: std::path::PathBuf,
 }
 
 #[derive(serde::Deserialize, Debug, PartialEq, Eq)]
@@ -36,7 +36,7 @@ struct ClusterConfig {
 #[serde(rename_all = "PascalCase")]
 struct WorkerConfig {
     ssd_dev_path: std::path::PathBuf,
-    hdd_dev_path: std::path::PathBuf,
+    blob_dev_path: std::path::PathBuf,
 }
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
@@ -85,10 +85,10 @@ pub fn validate_standalone_config() {
         .standalone
         .as_ref()
         .expect("standalone config not set");
-    if !config.hdd_dev_path.is_dir() {
+    if !config.blob_dev_path.is_dir() {
         panic!(
-            "hdd dev path {} is not a directory",
-            config.hdd_dev_path.display()
+            "blob dev path {} is not a directory",
+            config.blob_dev_path.display()
         );
     }
     if !config.ssd_dev_path.is_dir() {
@@ -126,11 +126,11 @@ pub fn validate_cluster_config(worker_id: Option<usize>) {
                 worker.ssd_dev_path.display()
             );
         }
-        if !worker.hdd_dev_path.is_dir() {
+        if !worker.blob_dev_path.is_dir() {
             panic!(
-                "worker {} hdd dev path {} is not a directory",
+                "worker {} blob dev path {} is not a directory",
                 worker_id,
-                worker.hdd_dev_path.display()
+                worker.blob_dev_path.display()
             );
         }
     }
@@ -156,13 +156,13 @@ pub fn ec_m() -> usize {
     ec_k() + ec_p()
 }
 
-/// Get path to the hdd device, expected to be a directory
-pub fn hdd_dev_path() -> std::path::PathBuf {
+/// Get path to the blob device, expected to be a directory linked to a HDD device
+pub fn blob_dev_path() -> std::path::PathBuf {
     get_config()
         .standalone
         .as_ref()
         .expect("standalone config not set")
-        .hdd_dev_path
+        .blob_dev_path
         .clone()
 }
 
@@ -224,12 +224,13 @@ pub fn worker_ssd_dev_path(worker_id: usize) -> Option<std::path::PathBuf> {
         .and_then(|c| c.workers.get(worker_id - 1).map(|w| w.ssd_dev_path.clone()))
 }
 
-/// Get the hdd device path of a worker
-pub fn worker_hdd_dev_path(worker_id: usize) -> Option<std::path::PathBuf> {
-    get_config()
-        .cluster
-        .as_ref()
-        .and_then(|c| c.workers.get(worker_id - 1).map(|w| w.hdd_dev_path.clone()))
+/// Get the blob device path of a worker
+pub fn worker_blob_dev_path(worker_id: usize) -> Option<std::path::PathBuf> {
+    get_config().cluster.as_ref().and_then(|c| {
+        c.workers
+            .get(worker_id - 1)
+            .map(|w| w.blob_dev_path.clone())
+    })
 }
 
 /// Get the interval of heartbeat

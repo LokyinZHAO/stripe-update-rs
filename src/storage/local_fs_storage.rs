@@ -8,19 +8,20 @@ use crate::SUResult;
 
 use super::utility::check_slice_range;
 use super::utility::{block_id_to_path, check_block_range};
+use super::BlobStore;
 use super::{BlockId, BlockStorage, SliceStorage};
 
 #[derive(Debug)]
-pub struct HDDStorage {
+pub struct LocalFileSystemStorage {
     dev: std::path::PathBuf,
     block_size: usize,
 }
 
-impl HDDStorage {
-    /// Connect the [`HDDStorage`] to a device(supposed to be a HDD device) to store the block.
+impl LocalFileSystemStorage {
+    /// Connect the [`LocalFileSystemStorage`] to a device(supposed to be a HDD device) to store the block.
     ///
     /// # Parameter
-    /// - `dev_path`: path to the HDD device
+    /// - `dev_path`: path to the storage device
     /// - `block_size`: size of each block to be created
     ///
     /// # Error
@@ -93,7 +94,7 @@ impl HDDStorage {
     }
 }
 
-impl BlockStorage for HDDStorage {
+impl BlockStorage for LocalFileSystemStorage {
     /// Storing data to a block.
     /// A new block will be created if the block does not exist.
     ///
@@ -163,7 +164,7 @@ impl BlockStorage for HDDStorage {
     }
 }
 
-impl SliceStorage for HDDStorage {
+impl SliceStorage for LocalFileSystemStorage {
     /// Storing data from a slice to a specific area of a block.
     /// The block area to store is defined as `Block[inner_block_offset, inner_block_offset + slice_data.len())`.
     ///
@@ -232,6 +233,8 @@ impl SliceStorage for HDDStorage {
     }
 }
 
+impl BlobStore for LocalFileSystemStorage {}
+
 #[cfg(test)]
 mod test {
     use rand::Rng;
@@ -242,7 +245,7 @@ mod test {
         SUError,
     };
 
-    use super::HDDStorage;
+    use super::LocalFileSystemStorage;
     const BLOCK_SIZE: usize = 4 << 10;
     const BLOCK_NUM: usize = 4 << 10;
     fn random_block_data() -> Vec<u8> {
@@ -255,7 +258,7 @@ mod test {
     #[test]
     fn put_get_block() {
         let tempfile = tempfile::TempDir::new().unwrap();
-        let hdd_store = HDDStorage::connect_to_dev(
+        let local_fs_store = LocalFileSystemStorage::connect_to_dev(
             tempfile.path().to_owned(),
             NonZeroUsize::new(BLOCK_SIZE).unwrap(),
         )
@@ -267,15 +270,15 @@ mod test {
         blocks
             .iter()
             .enumerate()
-            .for_each(|(i, block)| hdd_store.put_block(i, block).unwrap());
+            .for_each(|(i, block)| local_fs_store.put_block(i, block).unwrap());
         // get blocks
         blocks.iter().enumerate().for_each(|(i, block)| {
-            let data = hdd_store.get_block_owned(i).unwrap().unwrap();
+            let data = local_fs_store.get_block_owned(i).unwrap().unwrap();
             assert_eq!(&data, block);
         });
         let mut data = vec![0_u8; BLOCK_SIZE];
         blocks.iter().enumerate().for_each(|(i, block)| {
-            hdd_store.get_block(i, &mut data).unwrap().unwrap();
+            local_fs_store.get_block(i, &mut data).unwrap().unwrap();
             assert_eq!(&data, block);
         });
         // update
@@ -285,60 +288,64 @@ mod test {
             .collect::<Vec<_>>();
         update_blocks
             .iter()
-            .for_each(|(i, block)| hdd_store.put_block(*i, block).unwrap());
+            .for_each(|(i, block)| local_fs_store.put_block(*i, block).unwrap());
         update_blocks.iter().for_each(|(i, block)| {
-            let retrieve = hdd_store.get_block_owned(*i).unwrap().unwrap();
+            let retrieve = local_fs_store.get_block_owned(*i).unwrap().unwrap();
             assert_eq!(block, &retrieve);
         })
     }
 
     #[test]
     fn block_error_handle() {
-        let hdd_store_err = HDDStorage::connect_to_dev(
+        let store_err = LocalFileSystemStorage::connect_to_dev(
             std::path::PathBuf::from("404"),
             NonZeroUsize::new(BLOCK_SIZE).unwrap(),
         )
         .unwrap_err();
         assert_eq!(
-            hdd_store_err.into_io_err().unwrap().kind(),
+            store_err.into_io_err().unwrap().kind(),
             std::io::ErrorKind::NotFound
         );
 
         let tempfile = tempfile::TempDir::new().unwrap();
-        let hdd_store = HDDStorage::connect_to_dev(
+        let local_fs_store = LocalFileSystemStorage::connect_to_dev(
             tempfile.path().to_path_buf(),
             NonZeroUsize::new(BLOCK_SIZE).unwrap(),
         )
         .unwrap();
         // put blocks out of range
         let out_of_range_data = vec![0_u8; BLOCK_SIZE + 1];
-        let e = hdd_store.put_block(0, &out_of_range_data).unwrap_err();
+        let e = local_fs_store.put_block(0, &out_of_range_data).unwrap_err();
         assert!(matches!(e, SUError::Range(_)));
         let out_of_range_data = vec![0_u8; BLOCK_SIZE - 1];
-        let e = hdd_store.put_block(0, &out_of_range_data).unwrap_err();
+        let e = local_fs_store.put_block(0, &out_of_range_data).unwrap_err();
         assert!(matches!(e, SUError::Range(_)));
 
         // get block out of range
         let mut out_of_range_data = vec![0_u8; BLOCK_SIZE + 1];
-        let e = hdd_store.get_block(0, &mut out_of_range_data).unwrap_err();
+        let e = local_fs_store
+            .get_block(0, &mut out_of_range_data)
+            .unwrap_err();
         assert!(matches!(e, SUError::Range(_)));
         let mut out_of_range_data = vec![0_u8; BLOCK_SIZE - 1];
-        let e = hdd_store.get_block(0, &mut out_of_range_data).unwrap_err();
+        let e = local_fs_store
+            .get_block(0, &mut out_of_range_data)
+            .unwrap_err();
         assert!(matches!(e, SUError::Range(_)));
         // get block not exists
         let mut data = vec![0_u8; BLOCK_SIZE];
-        let ret = hdd_store.get_block(0, &mut data).unwrap();
+        let ret = local_fs_store.get_block(0, &mut data).unwrap();
         assert!(ret.is_none());
 
         // get block owned not exists
-        let ret = hdd_store.get_block_owned(9).unwrap();
+        let ret = local_fs_store.get_block_owned(9).unwrap();
         assert!(ret.is_none());
     }
 
     #[test]
     fn put_get_slice() {
         let tempdir = tempfile::tempdir().unwrap();
-        let hdd_store = HDDStorage::connect_to_dev(
+        let local_fs_store = LocalFileSystemStorage::connect_to_dev(
             tempdir.path().to_path_buf(),
             NonZeroUsize::new(BLOCK_SIZE).unwrap(),
         )
@@ -350,7 +357,7 @@ mod test {
         blocks
             .iter()
             .enumerate()
-            .for_each(|(i, block)| hdd_store.put_block(i, block).unwrap());
+            .for_each(|(i, block)| local_fs_store.put_block(i, block).unwrap());
         // get slice
         fn random_slice_range() -> std::ops::Range<usize> {
             let start = rand::thread_rng().gen_range(0..BLOCK_SIZE - 1);
@@ -370,12 +377,12 @@ mod test {
             .iter()
             .enumerate()
             .map(|(i, range)| {
-                let owned_data = hdd_store
+                let owned_data = local_fs_store
                     .get_slice_owned(i, range.to_owned())
                     .unwrap()
                     .unwrap();
                 let mut data = vec![0_u8; range.len()];
-                hdd_store
+                local_fs_store
                     .get_slice(i, range.start, &mut data)
                     .unwrap()
                     .unwrap();
@@ -396,7 +403,7 @@ mod test {
             })
             .collect::<Vec<_>>();
         update_slice.iter().for_each(|(i, range, slice_data)| {
-            hdd_store
+            local_fs_store
                 .put_slice(*i, range.start, slice_data)
                 .unwrap()
                 .unwrap()
@@ -405,12 +412,12 @@ mod test {
             .iter()
             .map(|(i, range, slice_data)| {
                 let expect = slice_data;
-                let retrieved_owned = hdd_store
+                let retrieved_owned = local_fs_store
                     .get_slice_owned(*i, range.clone())
                     .unwrap()
                     .unwrap();
                 let mut retrieved = vec![0_u8; range.len()];
-                hdd_store
+                local_fs_store
                     .get_slice(*i, range.start, &mut retrieved)
                     .unwrap()
                     .unwrap();
@@ -425,14 +432,14 @@ mod test {
         updated_block
             .iter()
             .enumerate()
-            .map(|(i, expect)| (expect, hdd_store.get_block_owned(i).unwrap().unwrap()))
+            .map(|(i, expect)| (expect, local_fs_store.get_block_owned(i).unwrap().unwrap()))
             .for_each(|(expect, retrieved)| assert_eq!(expect, &retrieved));
     }
 
     #[test]
     fn slice_error_handle() {
         let tempdir = tempfile::tempdir().unwrap();
-        let hdd_store = HDDStorage::connect_to_dev(
+        let local_fs_store = LocalFileSystemStorage::connect_to_dev(
             tempdir.path().to_path_buf(),
             NonZeroUsize::new(BLOCK_SIZE).unwrap(),
         )
@@ -444,28 +451,28 @@ mod test {
         blocks
             .iter()
             .enumerate()
-            .for_each(|(i, block)| hdd_store.put_block(i, block).unwrap());
+            .for_each(|(i, block)| local_fs_store.put_block(i, block).unwrap());
         // get 404
-        let e = hdd_store.get_slice_owned(BLOCK_NUM, 0..1).unwrap();
+        let e = local_fs_store.get_slice_owned(BLOCK_NUM, 0..1).unwrap();
         assert!(e.is_none());
         // get invalid range
-        let e = hdd_store.get_slice_owned(0, 0..BLOCK_SIZE + 1);
+        let e = local_fs_store.get_slice_owned(0, 0..BLOCK_SIZE + 1);
         assert!(matches!(e, Err(SUError::Range(_))));
-        let e = hdd_store.get_slice_owned(0, BLOCK_SIZE..BLOCK_SIZE + 1);
+        let e = local_fs_store.get_slice_owned(0, BLOCK_SIZE..BLOCK_SIZE + 1);
         assert!(matches!(e, Err(SUError::Range(_))));
         // put 404
         let data = vec![0_u8; BLOCK_SIZE * 2];
-        let e = hdd_store
+        let e = local_fs_store
             .put_slice(BLOCK_NUM, 0, &data[0..BLOCK_SIZE])
             .unwrap();
         assert!(e.is_none());
         // put offset out of range
-        let e = hdd_store.put_slice(BLOCK_NUM - 1, BLOCK_SIZE, &data[0..1]);
+        let e = local_fs_store.put_slice(BLOCK_NUM - 1, BLOCK_SIZE, &data[0..1]);
         assert!(matches!(e, Err(SUError::Range(_))));
         // put slice len out of range
-        let e = hdd_store.put_slice(BLOCK_NUM - 1, BLOCK_SIZE - 1, &data[0..2]);
+        let e = local_fs_store.put_slice(BLOCK_NUM - 1, BLOCK_SIZE - 1, &data[0..2]);
         assert!(matches!(e, Err(SUError::Range(_))));
-        let e = hdd_store.put_slice(BLOCK_NUM - 1, 0, &data[0..BLOCK_SIZE + 1]);
+        let e = local_fs_store.put_slice(BLOCK_NUM - 1, 0, &data[0..BLOCK_SIZE + 1]);
         assert!(matches!(e, Err(SUError::Range(_))));
     }
 }

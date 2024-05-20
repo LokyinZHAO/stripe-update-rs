@@ -7,7 +7,7 @@ use indicatif::ProgressIterator;
 
 use crate::{
     erasure_code::{ErasureCode, ReedSolomon, Stripe},
-    storage::{BlockStorage, HDDStorage},
+    storage::{BlockStorage, LocalFileSystemStorage},
     SUResult,
 };
 
@@ -17,7 +17,7 @@ pub struct DataBuilder {
     block_num: Option<usize>,
     ssd_cap: Option<usize>,
     ssd_dev_path: Option<PathBuf>,
-    hdd_dev_path: Option<PathBuf>,
+    blob_dev_path: Option<PathBuf>,
     purge: bool,
     k_p: Option<(usize, usize)>,
 }
@@ -47,8 +47,8 @@ impl DataBuilder {
         self
     }
 
-    pub fn hdd_dev_path(&mut self, hdd_dev_path: impl AsRef<std::path::Path>) -> &mut Self {
-        self.hdd_dev_path = Some(hdd_dev_path.as_ref().to_path_buf());
+    pub fn blob_dev_path(&mut self, blob_dev_path: impl AsRef<std::path::Path>) -> &mut Self {
+        self.blob_dev_path = Some(blob_dev_path.as_ref().to_path_buf());
         self
     }
 
@@ -76,7 +76,7 @@ impl DataBuilder {
         }
         let stripe_num = block_num / m;
         let block_size = self.block_size.expect("block size not set");
-        let hdd_dev_path = self.hdd_dev_path.clone().expect("hdd dev path not set");
+        let blob_dev_path = self.blob_dev_path.clone().expect("blob dev path not set");
         fn dev_display(dev: &Path) -> String {
             let mut display = dev.display().to_string();
             if dev.is_symlink() {
@@ -84,12 +84,12 @@ impl DataBuilder {
             }
             display
         }
-        let hdd_dev_display = dev_display(&hdd_dev_path);
+        let blob_dev_display = dev_display(&blob_dev_path);
         println!("RS({m}, {k})");
         println!("block size: {block_size}");
         println!("block num: {block_num}");
         println!("stripe num: {stripe_num}");
-        println!("hdd dev path: {hdd_dev_display}");
+        println!("blob dev path: {blob_dev_display}");
         if self.purge {
             print!("purging dir...");
             fn purge_dir(path: &Path) -> SUResult<()> {
@@ -99,7 +99,7 @@ impl DataBuilder {
                 }
                 Ok(())
             }
-            purge_dir(hdd_dev_path.as_path())?;
+            purge_dir(blob_dev_path.as_path())?;
             println!("done")
         }
         let epoch = std::time::Instant::now();
@@ -146,9 +146,11 @@ impl DataBuilder {
         });
         // data store
         let store_handle = std::thread::spawn(move || {
-            let hdd_storage =
-                HDDStorage::connect_to_dev(hdd_dev_path, NonZeroUsize::new(block_size).unwrap())
-                    .unwrap();
+            let blob_storage = LocalFileSystemStorage::connect_to_dev(
+                blob_dev_path,
+                NonZeroUsize::new(block_size).unwrap(),
+            )
+            .unwrap();
             (0..stripe_num)
                 .map(|_| {
                     encoded_stripe_consumer
@@ -166,7 +168,7 @@ impl DataBuilder {
                             .iter_source()
                             .chain(stripe.iter_parity())
                             .zip(block_id_range)
-                            .for_each(|(block, id)| hdd_storage.put_block(id, block).unwrap());
+                            .for_each(|(block, id)| blob_storage.put_block(id, block).unwrap());
                     },
                 );
             assert!(encoded_stripe_consumer.recv().is_err());

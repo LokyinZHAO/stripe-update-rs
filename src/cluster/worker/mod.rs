@@ -9,8 +9,8 @@ use bytes::{Bytes, BytesMut};
 use crate::{
     cluster::dev_display,
     storage::{
-        BlockId, BlockStorage, EvictStrategySlice, FixedSizeSliceBuf, HDDStorage, NonEvict,
-        SliceBuffer, SliceStorage,
+        BlockId, BlockStorage, EvictStrategySlice, FixedSizeSliceBuf, LocalFileSystemStorage,
+        NonEvict, SliceBuffer, SliceStorage,
     },
     SUError, SUResult,
 };
@@ -30,7 +30,7 @@ pub struct WorkerBuilder {
     id: Option<WorkerID>,
     client: Option<redis::Client>,
     queue_key: Option<(String, String)>,
-    hdd_dev_path: Option<PathBuf>,
+    blob_dev_path: Option<PathBuf>,
     ssd_dev_path: Option<PathBuf>,
     block_size: Option<NonZeroUsize>,
 }
@@ -55,8 +55,8 @@ impl WorkerBuilder {
         self
     }
 
-    pub fn hdd_dev_path(&mut self, path: impl Into<PathBuf>) -> &mut Self {
-        self.hdd_dev_path = Some(path.into());
+    pub fn blob_dev_path(&mut self, path: impl Into<PathBuf>) -> &mut Self {
+        self.blob_dev_path = Some(path.into());
         self
     }
 
@@ -76,7 +76,7 @@ struct Worker {
     request_queue_key: String,
     response_queue_key: String,
     ssd_dev_path: PathBuf,
-    hdd_dev_path: PathBuf,
+    blob_dev_path: PathBuf,
     block_size: usize,
 }
 
@@ -86,8 +86,8 @@ impl Worker {
         const GET_CONNECTION_ERR_STR: &str = "fail to get redis connection";
         let recv_conn = self.client.get_connection().expect(GET_CONNECTION_ERR_STR);
         let send_conn = self.client.get_connection().expect(GET_CONNECTION_ERR_STR);
-        let hdd_dev = HDDStorage::connect_to_dev(
-            &self.hdd_dev_path,
+        let blob_dev = LocalFileSystemStorage::connect_to_dev(
+            &self.blob_dev_path,
             NonZeroUsize::new(self.block_size).unwrap(),
         )?;
         let slice_buf = FixedSizeSliceBuf::connect_to_dev_with_evict(
@@ -100,7 +100,7 @@ impl Worker {
         let (response_send, response_recv) = std::sync::mpsc::sync_channel(CH_SIZE);
         println!("worker id: {}", self.id.0);
         println!("ssd device path: {}", dev_display(&self.ssd_dev_path));
-        println!("hdd device path: {}", dev_display(&self.hdd_dev_path));
+        println!("blob device path: {}", dev_display(&self.blob_dev_path));
         println!("request queue key: {}", self.request_queue_key);
         println!("response queue key: {}", self.response_queue_key);
         println!("block size: {}", self.block_size);
@@ -110,7 +110,7 @@ impl Worker {
             receiver_thread_handle(recv_conn, self.request_queue_key, request_send)
         });
         let work_handle = std::thread::spawn(move || {
-            worker_thread_handle(self.id, request_recv, response_send, hdd_dev, slice_buf)
+            worker_thread_handle(self.id, request_recv, response_send, blob_dev, slice_buf)
         });
         let send_handle = std::thread::spawn(move || {
             sender_thread_handle(send_conn, self.response_queue_key, response_recv)
@@ -142,9 +142,9 @@ impl TryFrom<WorkerBuilder> for Worker {
             ssd_dev_path: value
                 .ssd_dev_path
                 .ok_or_else(|| SUError::Other("ssd device path not set".into()))?,
-            hdd_dev_path: value
-                .hdd_dev_path
-                .ok_or_else(|| SUError::Other("hdd device path not set".into()))?,
+            blob_dev_path: value
+                .blob_dev_path
+                .ok_or_else(|| SUError::Other("blob device path not set".into()))?,
             block_size: value
                 .block_size
                 .ok_or_else(|| SUError::Other("block size not set".into()))?
@@ -183,7 +183,7 @@ fn worker_thread_handle(
     worker_id: WorkerID,
     recv_ch: Receiver<Request>,
     send_ch: SyncSender<Response>,
-    mut hdd_store: HDDStorage,
+    mut blob_store: LocalFileSystemStorage,
     mut ssd_buf: FixedSizeSliceBuf<NonEvict>,
 ) -> SUResult<()> {
     while let Ok(Request {
@@ -194,22 +194,22 @@ fn worker_thread_handle(
     {
         let response = match head {
             RequestHead::StoreBlock { id, .. } => {
-                do_store_block(task_id, &mut hdd_store, id, payload.unwrap())
+                do_store_block(task_id, &mut blob_store, id, payload.unwrap())
             }
             RequestHead::RetrieveData { id, ranges } => {
-                do_retrieve_data(task_id, &mut hdd_store, id, ranges)
+                do_retrieve_data(task_id, &mut blob_store, id, ranges)
             }
             RequestHead::PersistUpdate { id } => {
-                do_persist_update(task_id, &mut hdd_store, &mut ssd_buf, id)
+                do_persist_update(task_id, &mut blob_store, &mut ssd_buf, id)
             }
             RequestHead::BufferUpdateData { id, ranges, .. } => {
                 do_buffer_update_data(task_id, &mut ssd_buf, id, ranges, payload.unwrap())
             }
             RequestHead::Update { id, ranges, .. } => {
-                do_update(task_id, &mut hdd_store, id, ranges, payload.unwrap())
+                do_update(task_id, &mut blob_store, id, ranges, payload.unwrap())
             }
             RequestHead::FlushBuf => do_flush_buf(task_id, worker_id, &mut ssd_buf),
-            RequestHead::DropStore => do_drop_store(task_id, worker_id, &mut hdd_store),
+            RequestHead::DropStore => do_drop_store(task_id, worker_id, &mut blob_store),
             RequestHead::HeartBeat => do_heartbeat(task_id, worker_id),
             RequestHead::Shutdown => do_shutdown(task_id, worker_id),
         }?;
@@ -220,11 +220,11 @@ fn worker_thread_handle(
 
 fn do_store_block(
     task_id: TaskID,
-    hdd_store: &mut HDDStorage,
+    blob_store: &mut LocalFileSystemStorage,
     block_id: BlockId,
     data: Bytes,
 ) -> SUResult<Response> {
-    Ok(hdd_store
+    Ok(blob_store
         .put_block(block_id, &data)
         .map(|()| Response::store_block(task_id))
         .unwrap_or_else(|e| Response::nak(task_id, e)))
@@ -232,7 +232,7 @@ fn do_store_block(
 
 fn do_retrieve_data(
     task_id: TaskID,
-    hdd_store: &mut HDDStorage,
+    blob_store: &mut LocalFileSystemStorage,
     block_id: BlockId,
     ranges: Ranges,
 ) -> SUResult<Response> {
@@ -240,7 +240,7 @@ fn do_retrieve_data(
     let mut cursor = 0;
     for range in ranges.to_ranges().iter() {
         let len = range.len();
-        match hdd_store.get_slice(block_id, cursor, &mut data[cursor..cursor + len]) {
+        match blob_store.get_slice(block_id, cursor, &mut data[cursor..cursor + len]) {
             Ok(Some(_)) => {
                 cursor += len;
             }
@@ -263,7 +263,7 @@ fn do_retrieve_data(
 
 fn do_persist_update(
     task_id: TaskID,
-    hdd_store: &mut HDDStorage,
+    blob_store: &mut LocalFileSystemStorage,
     ssd_buf: &mut FixedSizeSliceBuf<impl EvictStrategySlice>,
     block_id: BlockId,
 ) -> SUResult<Response> {
@@ -298,7 +298,7 @@ fn do_persist_update(
             }
         })
         .map(|(data, range)| {
-            hdd_store
+            blob_store
                 .put_slice(block_id, range.start, &data)
                 .map_err(|e| Response::nak(task_id, format!("fail to persist updates: {e}")))
                 .and_then(|opt| {
@@ -343,7 +343,7 @@ fn do_buffer_update_data(
 
 fn do_update(
     task_id: TaskID,
-    hdd_store: &mut HDDStorage,
+    blob_store: &mut LocalFileSystemStorage,
     id: BlockId,
     ranges: Ranges,
     data: Bytes,
@@ -364,7 +364,7 @@ fn do_update(
             ));
         }
         let slice_data = slice_data.unwrap();
-        let result = hdd_store.put_slice(id, range.start, slice_data);
+        let result = blob_store.put_slice(id, range.start, slice_data);
         cursor += range.len();
         match result {
             Ok(Some(_)) => (),
@@ -394,7 +394,7 @@ fn do_flush_buf(
 fn do_drop_store(
     task_id: TaskID,
     worker_id: WorkerID,
-    hdd_store: &mut HDDStorage,
+    blob_store: &mut LocalFileSystemStorage,
 ) -> SUResult<Response> {
     fn purge_dir(path: &std::path::Path) -> SUResult<()> {
         use std::fs;
@@ -403,7 +403,7 @@ fn do_drop_store(
         }
         Ok(())
     }
-    let dev_path = hdd_store.get_dev_root();
+    let dev_path = blob_store.get_dev_root();
     let response = purge_dir(dev_path)
         .and_then(|_| std::fs::create_dir_all(dev_path).map_err(SUError::Io))
         .map(|_| Response::drop_store(task_id, worker_id))

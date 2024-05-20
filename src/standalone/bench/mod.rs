@@ -34,7 +34,7 @@ pub struct Bench {
     block_num: Option<usize>,
     ssd_block_cap: Option<usize>,
     ssd_dev_path: Option<PathBuf>,
-    hdd_dev_path: Option<PathBuf>,
+    blob_dev_path: Option<PathBuf>,
     k_p: Option<(usize, usize)>,
     test_num: Option<usize>,
     slice_size: Option<usize>,
@@ -67,8 +67,8 @@ impl Bench {
         self
     }
 
-    pub fn hdd_dev_path(&mut self, hdd_dev_path: impl Into<PathBuf>) -> &mut Self {
-        self.hdd_dev_path = Some(hdd_dev_path.into());
+    pub fn blob_dev_path(&mut self, blob_dev_path: impl Into<PathBuf>) -> &mut Self {
+        self.blob_dev_path = Some(blob_dev_path.into());
         self
     }
 

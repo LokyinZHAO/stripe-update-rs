@@ -148,7 +148,7 @@ pub enum Head {
     StoreBlock { id: BlockId, payload: PayloadID },
     /// Retrieve data from a block, and response with slice data
     RetrieveData { id: BlockId, ranges: Ranges },
-    /// Persist buffered updates to hdd, and respond with update delta data
+    /// Persist buffered updates to blob device, and respond with update delta data
     PersistUpdate { id: BlockId },
     /// Buffer updates of a data block
     BufferUpdateData {

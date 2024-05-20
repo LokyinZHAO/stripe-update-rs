@@ -84,7 +84,7 @@ pub enum Ack {
     StoreBlock,
     /// Retrieve data from a block, with slice data payload as response
     RetrieveData { payload: PayloadID },
-    /// Persist buffered updates to hdd, with updates delta payload as response
+    /// Persist buffered updates to blob device, with updates delta payload as response
     PersistUpdate { ranges: Ranges, payload: PayloadID },
     /// Buffer Updates of a block
     BufferUpdateData,

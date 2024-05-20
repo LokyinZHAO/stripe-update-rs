@@ -4,7 +4,11 @@ fn main() {
     match args.cmd {
         Commands::BuildData { config, purge } => build_data(&config, purge),
         Commands::Benchmark { config, manner } => benchmark(&config, manner),
-        Commands::Clean { config, ssd, hdd } => cleanup(&config, ssd, hdd),
+        Commands::Clean {
+            config,
+            ssd,
+            blob_device,
+        } => cleanup(&config, ssd, blob_device),
     };
 }
 
@@ -15,7 +19,7 @@ fn build_data(config_path: &std::path::Path, purge: bool) {
     stripe_update::standalone::data_builder::DataBuilder::new()
         .block_num(config::block_num())
         .block_size(config::block_size())
-        .hdd_dev_path(config::hdd_dev_path())
+        .blob_dev_path(config::blob_dev_path())
         .ssd_dev_path(config::ssd_dev_path())
         .purge(purge)
         .ssd_block_capacity(config::ssd_block_capacity())
@@ -31,7 +35,7 @@ fn benchmark(config_path: &std::path::Path, manner: Manner) {
     stripe_update::standalone::bench::Bench::new()
         .block_num(config::block_num())
         .block_size(config::block_size())
-        .hdd_dev_path(config::hdd_dev_path())
+        .blob_dev_path(config::blob_dev_path())
         .ssd_dev_path(config::ssd_dev_path())
         .slice_size(config::slice_size())
         .test_load(config::test_load())
@@ -43,7 +47,7 @@ fn benchmark(config_path: &std::path::Path, manner: Manner) {
         .unwrap_or_else(|e| panic!("fail to benchmark, {e}"));
 }
 
-fn cleanup(config_path: &std::path::Path, ssd: bool, hdd: bool) {
+fn cleanup(config_path: &std::path::Path, ssd: bool, blob_device: bool) {
     use stripe_update::config;
     stripe_update::config::init_config_toml(config_path);
     stripe_update::config::validate_standalone_config();
@@ -51,8 +55,8 @@ fn cleanup(config_path: &std::path::Path, ssd: bool, hdd: bool) {
     if ssd {
         cleaner.ssd_dev_path(config::ssd_dev_path());
     }
-    if hdd {
-        cleaner.hdd_dev_path(config::hdd_dev_path());
+    if blob_device {
+        cleaner.blob_dev_path(config::blob_dev_path());
     }
     cleaner
         .run()
@@ -100,6 +104,6 @@ enum Commands {
         #[arg(short, long, default_value_t = false)]
         ssd: bool,
         #[arg(short, long, default_value_t = false)]
-        hdd: bool,
+        blob_device: bool,
     },
 }

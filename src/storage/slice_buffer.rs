@@ -35,7 +35,7 @@ where
     pub fn cleanup_dev(&self) -> SUResult<()> {
         for entry in self.dev_dir.read_dir()? {
             let dir = entry?.path();
-            std::fs::remove_dir(dir.as_path())?;
+            std::fs::remove_dir_all(dir.as_path())?;
         }
         Ok(())
     }

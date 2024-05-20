@@ -53,8 +53,10 @@ enum CoordinatorCmds {
     BuildData,
     /// Purge all the existing data in the cluster
     Purge,
-    /// Benchmark stripe update
-    BenchUpdate,
+    /// Benchmark stripe update in baseline manner
+    BenchmarkBaseline,
+    /// Benchmark stripe update in merge manner
+    BenchmarkMerge,
     /// Kill all workers
     KillAll,
 }
@@ -78,13 +80,17 @@ fn launch_coordinator(cmd: CoordinatorCmds, config: PathBuf) {
             NonZeroUsize::new(ec_k()).unwrap(),
             NonZeroUsize::new(config::ec_p()).unwrap(),
         );
+
     use stripe_update::cluster::coordinator::cmds::*;
     use stripe_update::cluster::coordinator::CoordinatorCmds as Cmds;
     match cmd {
         CoordinatorCmds::BuildData => BuildData::try_from(builder)
             .map(Box::new)
             .and_then(Cmds::exec),
-        CoordinatorCmds::BenchUpdate => BenchUpdate::try_from(builder)
+        CoordinatorCmds::BenchmarkMerge => BenchUpdate::try_from(builder.benchmark_merge())
+            .map(Box::new)
+            .and_then(Cmds::exec),
+        CoordinatorCmds::BenchmarkBaseline => BenchUpdate::try_from(builder.benchmark_baseline())
             .map(Box::new)
             .and_then(Cmds::exec),
         CoordinatorCmds::KillAll => KillAll::try_from(builder)

@@ -6,6 +6,7 @@ mod slice_buffer;
 mod utility;
 
 pub use evict::EvictStrategySlice;
+pub use evict::LruEvict;
 pub use evict::MostModifiedBlockEvict;
 pub use evict::MostModifiedStripeEvict;
 pub use evict::NonEvict;

@@ -25,6 +25,22 @@ use super::{
 };
 
 #[derive(Debug, Clone, Default)]
+pub enum BenchmarkManner {
+    #[default]
+    Baseline,
+    Merge,
+}
+
+impl std::fmt::Display for BenchmarkManner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BenchmarkManner::Baseline => write!(f, "baseline"),
+            BenchmarkManner::Merge => write!(f, "merge"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct CoordinatorBuilder {
     redis_url: Option<String>,
     block_size: Option<usize>,
@@ -33,6 +49,7 @@ pub struct CoordinatorBuilder {
     buf_capacity: Option<usize>,
     worker_num: Option<usize>,
     k_p: Option<(usize, usize)>,
+    bench_manner: Option<BenchmarkManner>,
     test_load: Option<usize>,
 }
 
@@ -69,6 +86,16 @@ impl CoordinatorBuilder {
 
     pub fn k_p(mut self, k: NonZeroUsize, p: NonZeroUsize) -> Self {
         self.k_p = Some((k.get(), p.get()));
+        self
+    }
+
+    pub fn benchmark_merge(mut self) -> Self {
+        self.bench_manner = Some(BenchmarkManner::Merge);
+        self
+    }
+
+    pub fn benchmark_baseline(mut self) -> Self {
+        self.bench_manner = Some(BenchmarkManner::Baseline);
         self
     }
 

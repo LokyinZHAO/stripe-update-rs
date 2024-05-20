@@ -13,7 +13,7 @@ use crate::{
         MessageQueueKey, Ranges, WorkerID,
     },
     erasure_code::{ErasureCode, PartialStripe, ReedSolomon},
-    storage::{BlockId, EvictStrategySlice, MostModifiedStripeEvict},
+    storage::{BlockId, EvictStrategySlice, LruEvict, MostModifiedStripeEvict},
     SUError, SUResult,
 };
 
@@ -27,6 +27,7 @@ pub struct BenchUpdate {
     buf_capacity: usize,
     block_num: usize,
     test_load: usize,
+    manner: BenchmarkManner,
     k_p: (usize, usize),
 }
 
@@ -68,6 +69,9 @@ impl TryFrom<CoordinatorBuilder> for BenchUpdate {
         let test_load = value
             .test_load
             .ok_or_else(|| SUError::Other("test load not set".into()))?;
+        let manner = value
+            .bench_manner
+            .ok_or_else(|| SUError::Other("benchmark manner not set".into()))?;
         Ok(Self {
             send_conn,
             recv_conn,
@@ -78,6 +82,7 @@ impl TryFrom<CoordinatorBuilder> for BenchUpdate {
             buf_capacity,
             block_num,
             test_load,
+            manner,
             k_p,
         })
     }
@@ -97,6 +102,7 @@ impl super::CoordinatorCmds for BenchUpdate {
             k_p: (k, p),
             test_load,
             buf_capacity,
+            manner,
         } = *self;
         let worker_num = request_queue_list.len();
         let worker_id_range = 1..u8::try_from(worker_num).unwrap() + 1;
@@ -121,6 +127,12 @@ impl super::CoordinatorCmds for BenchUpdate {
         println!("slice size: {}", bytesize::ByteSize::b(slice_size as u64));
         println!("k: {k}");
         println!("p: {p}");
+        println!(
+            "buffer capacity: {}",
+            bytesize::ByteSize::b(buf_capacity as u64)
+        );
+        println!("test load: {test_load}");
+        println!("manner: {manner}");
 
         // make sure redis is clean
         let _: () = redis::cmd("FLUSHALL")
@@ -194,6 +206,7 @@ impl super::CoordinatorCmds for BenchUpdate {
                 k,
                 p,
                 block_size,
+                manner,
             };
             core_handler(param)
         });
@@ -388,7 +401,7 @@ fn ack_receiver(
 
 use crate::cluster::messages::coordinator_request::Head as RequestHead;
 
-use super::CoordinatorBuilder;
+use super::{BenchmarkManner, CoordinatorBuilder};
 struct CoreHandlerParam {
     raw_request_consumer: std::sync::mpsc::Receiver<Request>,
     request_producer: std::sync::mpsc::SyncSender<CoreItem>,
@@ -397,6 +410,7 @@ struct CoreHandlerParam {
     k: usize,
     p: usize,
     block_size: usize,
+    manner: BenchmarkManner,
 }
 
 fn core_handler(
@@ -408,6 +422,7 @@ fn core_handler(
         k,
         p,
         block_size,
+        manner,
     }: CoreHandlerParam,
 ) -> SUResult<()> {
     #[inline]
@@ -424,12 +439,18 @@ fn core_handler(
         WorkerID(worker_id as u8 + worker_id_range.start)
     };
     let n = k + p;
-    let mut check_buffer_param = CheckBufferThresholdParam {
-        request_producer: request_producer.clone(),
-        evict: MostModifiedStripeEvict::new(
+    let evict: Box<dyn EvictStrategySlice> = match manner {
+        BenchmarkManner::Baseline => Box::new(LruEvict::with_capacity(
+            NonZeroUsize::new(buf_capacity).unwrap(),
+        )),
+        BenchmarkManner::Merge => Box::new(MostModifiedStripeEvict::new(
             NonZeroUsize::new(n).unwrap(),
             NonZeroUsize::new(buf_capacity).unwrap(),
-        ),
+        )),
+    };
+    let mut check_buffer_param = CheckBufferThresholdParam {
+        request_producer: request_producer.clone(),
+        evict,
         erasure_code: ReedSolomon::from_k_p(
             NonZeroUsize::new(k).unwrap(),
             NonZeroUsize::new(p).unwrap(),
@@ -451,16 +472,16 @@ fn core_handler(
     Ok(())
 }
 
-struct CheckBufferThresholdParam<EV: EvictStrategySlice, EC: ErasureCode> {
+struct CheckBufferThresholdParam<EC: ErasureCode> {
     request_producer: std::sync::mpsc::SyncSender<CoreItem>,
     block_size: usize,
-    evict: EV,
+    evict: Box<dyn EvictStrategySlice>,
     erasure_code: EC,
     block_id_to_worker_id: Box<dyn Fn(BlockId) -> WorkerID>,
 }
 
-fn check_buffer_threshold<EV: EvictStrategySlice, EC: ErasureCode>(
-    param: &mut CheckBufferThresholdParam<EV, EC>,
+fn check_buffer_threshold<EC: ErasureCode>(
+    param: &mut CheckBufferThresholdParam<EC>,
     request: &Request,
 ) -> SUResult<()> {
     let (id, range) = match &request.head {
@@ -474,19 +495,19 @@ fn check_buffer_threshold<EV: EvictStrategySlice, EC: ErasureCode>(
     };
     let eviction = param.evict.push(id, range);
     if let Some(eviction) = eviction {
-        handle_eviction::<EV, EC>(param, eviction)?;
+        handle_eviction::<EC>(param, eviction)?;
     }
     Ok(())
 }
 
-fn handle_eviction<EV: EvictStrategySlice, EC: ErasureCode>(
+fn handle_eviction<EC: ErasureCode>(
     CheckBufferThresholdParam {
         request_producer,
         evict,
         erasure_code,
         block_id_to_worker_id,
         block_size,
-    }: &mut CheckBufferThresholdParam<EV, EC>,
+    }: &mut CheckBufferThresholdParam<EC>,
     (block_id, range): (BlockId, crate::storage::RangeSet),
 ) -> SUResult<()> {
     use crate::cluster::messages::worker_response::Ack as ResponseAck;

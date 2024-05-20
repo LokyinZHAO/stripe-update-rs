@@ -4,7 +4,7 @@ use crate::{storage::BlockId, SUResult};
 
 mod baseline;
 // mod dist_merge;
-mod dryrun;
+// mod dryrun;
 mod merge_stripe;
 
 #[derive(Debug, Default, serde::Deserialize, Clone, clap::ValueEnum)]
@@ -101,7 +101,7 @@ impl Bench {
         match self.manner {
             Manner::Baseline => self.baseline(),
             Manner::MergeStripe => self.merge_stripe(),
-            Manner::TraceDryRun => self.dryrun(),
+            Manner::TraceDryRun => unimplemented!("dryrun is disabled"),
         }
     }
 }
